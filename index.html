@@ -1,0 +1,1347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>코스닥협회 QR 출석 시스템 v4</title>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2/dist/jspdf.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+.scanner-input{border:2px solid #3b82f6!important;background:#eff6ff;font-size:18px!important;font-family:monospace}
+.scanner-input:focus{border-color:#7c3aed!important;box-shadow:0 0 0 4px rgba(124,58,237,.15)!important}
+.scan-flash{position:fixed;inset:0;z-index:400;pointer-events:none;animation:flashAnim .5s ease-out forwards}
+@keyframes flashAnim{0%{opacity:.4}100%{opacity:0}}
+.scan-result-big{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;padding:40px 56px;border-radius:24px;text-align:center;min-width:380px;animation:popIn .2s ease-out}
+@keyframes popIn{from{transform:translate(-50%,-50%) scale(.8);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
+.scan-result-big.success{background:#dcfce7;border:4px solid #22c55e;color:#166534}
+.scan-result-big.error{background:#fee2e2;border:4px solid #ef4444;color:#991b1b}
+.scan-result-big.duplicate{background:#fef9c3;border:4px solid #eab308;color:#854d0e}
+@media print{.no-print{display:none!important}}
+@media(max-width:768px){.sidebar-wrap{display:none!important}.mobile-nav{display:flex!important}}
+.mobile-nav{display:none}
+.loading-spinner{display:inline-block;width:20px;height:20px;border:3px solid rgba(0,0,0,.1);border-radius:50%;border-top-color:#3b82f6;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;z-index:500}
+</style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+<div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback,useMemo}=React;
+
+/* ═══════════════════════════════════════════
+   API Configuration
+   ═══════════════════════════════════════════ */
+const API_URL='https://script.google.com/macros/s/AKfycbz5sEyjgPzbzSGEQl9q3tI2_wJv5zX5YuAYkXpLM8ThsF3yJS6FaksEVl0CCl7R3dFP/exec';
+const DEV_MODE=false; // true이면 시뮬레이션 버튼 표시
+
+/* ─── API Helper ─── */
+async function apiGet(action,params={}){
+  const qs=new URLSearchParams({action,...params}).toString();
+  const url=`${API_URL}?${qs}`;
+  try{
+    const res=await fetch(url,{redirect:'follow'});
+    const json=await res.json();
+    return json;
+  }catch(e){
+    console.error('API GET error:',action,e);
+    throw e;
+  }
+}
+
+async function apiPost(body){
+  try{
+    const res=await fetch(API_URL,{
+      method:'POST',
+      redirect:'follow',
+      headers:{'Content-Type':'text/plain'},
+      body:JSON.stringify(body),
+    });
+    const json=await res.json();
+    return json;
+  }catch(e){
+    console.error('API POST error:',body.action,e);
+    throw e;
+  }
+}
+
+/* ─── LocalStorage Cache ─── */
+const CACHE_KEY='kosdaq_qr_v4_cache';
+function cacheGet(key){try{const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'{}');return c[key]}catch(e){return null}}
+function cacheSet(key,val){try{const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'{}');c[key]=val;c[key+'_ts']=Date.now();localStorage.setItem(CACHE_KEY,JSON.stringify(c))}catch(e){}}
+
+/* ─── Audio ─── */
+const AudioCtx=window.AudioContext||window.webkitAudioContext;
+let audioCtx=null;
+function playBeep(type){
+  try{
+    if(!audioCtx)audioCtx=new AudioCtx();
+    const osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
+    osc.connect(gain);gain.connect(audioCtx.destination);gain.gain.value=0.3;
+    if(type==='success'){osc.frequency.value=880;osc.type='sine'}
+    else if(type==='error'){osc.frequency.value=220;osc.type='square'}
+    else{osc.frequency.value=440;osc.type='triangle'}
+    osc.start();osc.stop(audioCtx.currentTime+(type==='error'?0.3:0.15));
+  }catch(e){}
+}
+
+/* ─── UUID ─── */
+function uuid(){return'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)})}
+
+/* ─── Focus Lock ─── */
+function useFocusLock(ref,active=true){
+  useEffect(()=>{
+    if(!active)return;
+    const el=ref.current;if(!el)return;
+    el.focus();
+    const t=setInterval(()=>{if(document.activeElement!==el)el.focus()},500);
+    return()=>clearInterval(t);
+  },[active]);
+}
+
+/* ─── Loading Component ─── */
+function Spinner({size='sm'}){
+  const s=size==='lg'?'w-8 h-8 border-4':'w-5 h-5 border-3';
+  return <span className={`loading-spinner ${s}`}/>;
+}
+function LoadingOverlay({text}){
+  return <div className="loading-overlay"><div className="text-center"><Spinner size="lg"/><div className="mt-3 text-gray-600 font-semibold">{text||'로딩 중...'}</div></div></div>;
+}
+
+/* ─── Field Mapping: API 한글 → 프론트 영문 ─── */
+function parseDate(v){if(!v)return'';const d=new Date(v);if(isNaN(d))return v;return d.toLocaleDateString('ko-KR',{year:'numeric',month:'2-digit',day:'2-digit'}).replace(/\.\s?/g,'-').replace(/-$/,'')}
+function mapTraining(t){
+  const today=new Date();today.setHours(0,0,0,0);
+  const rawStart=t.시작일||t.startDate||'';
+  const rawEnd=t.종료일||t.endDate||'';
+  const sd=rawStart?new Date(rawStart):null;
+  const ed=rawEnd?new Date(rawEnd):null;
+  let status=t.상태||t.status||'preparing';
+  // 상태 자동 판정: 준비중/active/upcoming 등 서버값 무시하고 날짜 기준
+  if(sd&&ed){if(today>ed)status='completed';else if(today>=sd)status='active';else status='preparing';}
+  else if(status==='준비중')status='preparing';
+  return{
+    id:t.연수id||t.id,
+    name:t.연수명||t.name||'',
+    startDate:parseDate(rawStart),
+    endDate:parseDate(rawEnd),
+    days:Number(t.일수||t.days||1),
+    status,
+    surveyUrl:t.설문URL||'',
+  };
+}
+function mapParticipant(p,tid){
+  return{
+    id:p.참가자id||p.id||uuid(),
+    trainingId:tid||p.연수id||p.trainingId,
+    name:p.이름||p.name||'',
+    company:p.회사||p.소속사||p.company||'',
+    position:p.직급||p.position||'',
+    phone:p.연락처||p.phone||'',
+    email:p.이메일||p.email||'',
+    manager:p.담당자||p.manager||'',
+    qrCode:p.QR코드||p.qrCode||'',
+    surveyCompleted:p.설문완료==='Y'||p.설문완료===true||p.surveyCompleted||false,
+    certificateIssued:p.수료여부==='Y'||p.수료여부===true||p.certificateIssued||false,
+  };
+}
+function mapCard(c){
+  return{
+    id:c.카드id||c.id||uuid(),
+    qrCode:c.QR코드||c.카드QR||c.qrCode||'',
+    status:c.상태||c.status||'available',
+    participantId:c.참가자id||c.participantId||null,
+    participantName:c.참가자이름||c.participantName||'',
+    mappedAt:c.매핑일시||c.mappedAt||null,
+    returnedAt:c.반납일시||c.returnedAt||null,
+  };
+}
+function mapAttendance(a){
+  return{
+    id:a.출석id||a.id||uuid(),
+    participantId:a.참가자id||a.participantId,
+    trainingId:a.연수id||a.trainingId,
+    day:Number(a.일차||a.day),
+    session:a.세션||a.시간대||a.session,
+    checkedAt:a.체크시각||a.출석시각||a.checkedAt,
+    method:a.방법||a.method||'scanner',
+    late:a.지각여부==='Y'||a.late||false,
+  };
+}
+
+/* ═══════════════════════════════════════════
+   App
+   ═══════════════════════════════════════════ */
+function App(){
+  const [loggedIn,setLoggedIn]=useState(!!sessionStorage.getItem('kosdaq_v4_auth'));
+  const [page,setPage]=useState('dashboard');
+  const [selTraining,setSelTraining]=useState(null);
+  const [toast,setToast]=useState(null);
+  const [scanResult,setScanResult]=useState(null);
+  const [flash,setFlash]=useState(null);
+  const [globalLoading,setGlobalLoading]=useState(false);
+
+  // Data state
+  const [trainings,setTrainings]=useState([]);
+  const [participants,setParticipants]=useState([]);
+  const [cards,setCards]=useState([]);
+  const [attendance,setAttendance]=useState([]);
+
+  const showToast=useCallback((msg,type='ok')=>{setToast({msg,type});setTimeout(()=>setToast(null),2000)},[]);
+  const showScanResult=useCallback((type,icon,name,detail)=>{
+    setScanResult({type,icon,name,detail});playBeep(type);
+    setFlash(type);setTimeout(()=>setFlash(null),500);
+    setTimeout(()=>setScanResult(null),2500);
+  },[]);
+
+  /* ─── Data Loading ─── */
+  const loadTrainings=useCallback(async()=>{
+    try{
+      const res=await apiGet('getTrainings');
+      const list=(res.data||res||[]).map(mapTraining);
+      setTrainings(list);
+      cacheSet('trainings',list);
+      return list;
+    }catch(e){
+      const cached=cacheGet('trainings');
+      if(cached){setTrainings(cached);showToast('⚠️ 오프라인 모드 (캐시)','warn')}
+      else showToast('❌ 연수 목록 로딩 실패','err');
+      return cached||[];
+    }
+  },[showToast]);
+
+  const loadParticipants=useCallback(async(tid)=>{
+    try{
+      const res=await apiGet('getParticipants',{tid});
+      const list=(res.data||res||[]).map(p=>mapParticipant(p,tid));
+      setParticipants(prev=>{
+        const other=prev.filter(p=>p.trainingId!==tid);
+        return[...other,...list];
+      });
+      cacheSet(`participants_${tid}`,list);
+      return list;
+    }catch(e){
+      const cached=cacheGet(`participants_${tid}`);
+      if(cached){setParticipants(prev=>[...prev.filter(p=>p.trainingId!==tid),...cached]);return cached}
+      return[];
+    }
+  },[]);
+
+  const loadCards=useCallback(async()=>{
+    try{
+      const res=await apiGet('getCards');
+      const list=(res.data||res||[]).map(mapCard);
+      setCards(list);
+      cacheSet('cards',list);
+      return list;
+    }catch(e){
+      const cached=cacheGet('cards');
+      if(cached)setCards(cached);
+      return cached||[];
+    }
+  },[]);
+
+  const loadAttendance=useCallback(async(tid,day)=>{
+    try{
+      const params={tid};
+      if(day)params.day=String(day);
+      const res=await apiGet('getAttendance',params);
+      const list=(res.data||res||[]).map(mapAttendance);
+      if(day){
+        setAttendance(prev=>{
+          const other=prev.filter(a=>!(a.trainingId===tid&&a.day===Number(day)));
+          return[...other,...list];
+        });
+      }else{
+        setAttendance(prev=>{
+          const other=prev.filter(a=>a.trainingId!==tid);
+          return[...other,...list];
+        });
+      }
+      cacheSet(`attendance_${tid}${day?'_'+day:''}`,list);
+      return list;
+    }catch(e){
+      const cached=cacheGet(`attendance_${tid}${day?'_'+day:''}`);
+      return cached||[];
+    }
+  },[]);
+
+  const loadAllForTraining=useCallback(async(tid)=>{
+    setGlobalLoading(true);
+    try{
+      await Promise.all([loadParticipants(tid),loadCards(),loadAttendance(tid)]);
+    }finally{setGlobalLoading(false)}
+  },[loadParticipants,loadCards,loadAttendance]);
+
+  // Initial load
+  useEffect(()=>{
+    if(loggedIn)loadTrainings();
+  },[loggedIn,loadTrainings]);
+
+  const training=trainings.find(t=>t.id===selTraining);
+  const curParticipants=useMemo(()=>participants.filter(p=>p.trainingId===selTraining),[participants,selTraining]);
+  const curAttendance=useMemo(()=>attendance.filter(a=>a.trainingId===selTraining),[attendance,selTraining]);
+
+  const selectTraining=async(id)=>{
+    setSelTraining(id);
+    setPage('training-dashboard');
+    await loadAllForTraining(id);
+  };
+  const goBack=()=>{setSelTraining(null);setPage('dashboard')};
+
+  if(!loggedIn)return <Login onLogin={()=>{sessionStorage.setItem('kosdaq_v4_auth','1');setLoggedIn(true)}}/>;
+
+  const nav=selTraining?[
+    {id:'training-dashboard',icon:'📊',label:'대시보드'},
+    {id:'upload',icon:'📁',label:'명단 업로드'},
+    {id:'attendance',icon:'✅',label:'출석 체크'},
+    {id:'completion',icon:'🎓',label:'수료 처리'},
+    {id:'records',icon:'📋',label:'출석부 조회'},
+  ]:[];
+
+  const getStats=(tid)=>{
+    const ps=participants.filter(p=>p.trainingId===tid);
+    const t=trainings.find(x=>x.id===tid);
+    if(!ps.length||!t)return{total:0,mapped:0,mappingRate:0,attendanceRate:0,certRate:0,cardReturnRate:0,cert:0};
+    const total=ps.length;
+    const mapped=ps.filter(p=>cards.some(c=>c.participantId===p.id&&c.status!=='available')).length;
+    const atts=attendance.filter(a=>a.trainingId===tid);
+    const totalSessions=t.days*2;
+    const attRate=totalSessions&&total?Math.round(atts.length/(total*totalSessions)*100):0;
+    const cert=ps.filter(p=>p.certificateIssued).length;
+    const returned=cards.filter(c=>ps.some(p=>p.id===c.participantId)&&c.returnedAt).length;
+    return{total,mapped,mappingRate:total?Math.round(mapped/total*100):0,attendanceRate:attRate,certRate:total?Math.round(cert/total*100):0,cert,cardReturnRate:mapped?Math.round(returned/mapped*100):0};
+  };
+
+  const pg=()=>{
+    if(!selTraining)return <Dashboard trainings={trainings} participants={participants} cards={cards} attendance={attendance} getStats={getStats} selectTraining={selectTraining} showToast={showToast} loadTrainings={loadTrainings}/>;
+    if(!training)return <div className="p-8">연수를 찾을 수 없습니다</div>;
+    const props={training,participants:curParticipants,cards,attendanceRecords:curAttendance,showToast,showScanResult,loadParticipants,loadCards,loadAttendance,loadAllForTraining,setParticipants,setCards,setAttendance};
+    switch(page){
+      case 'training-dashboard':return <TrainingDash {...props} getStats={getStats}/>;
+      case 'upload':return <Upload {...props}/>;
+      /* mapping 페이지 제거 — 출석 체크에서 자동 매핑 */
+      case 'attendance':return <AttendancePage {...props}/>;
+      case 'completion':return <CompletionPage {...props}/>;
+      case 'records':return <RecordsPage {...props}/>;
+      default:return <TrainingDash {...props} getStats={getStats}/>;
+    }
+  };
+
+  return(
+    <div className="flex min-h-screen">
+      {globalLoading&&<LoadingOverlay text="데이터 로딩 중..."/>}
+      {flash&&<div className="scan-flash" style={{background:flash==='success'?'#22c55e':flash==='error'?'#ef4444':'#eab308'}}/>}
+      <div className="sidebar-wrap w-64 bg-gray-900 text-white flex-shrink-0 flex flex-col" style={{minHeight:'100vh'}}>
+        <div className="p-5 border-b border-gray-700">
+          <div className="font-bold text-sm">🏢 KOSDAQ 연수</div>
+          <div className="text-xs text-gray-500 mt-1">QR 출석 관리 시스템 v4.0</div>
+        </div>
+        {selTraining?(
+          <>
+            <div className="px-5 py-3 text-blue-400 cursor-pointer hover:bg-gray-800 text-sm flex items-center gap-2" onClick={goBack}>← 연수 목록</div>
+            <div className="px-5 py-1 text-xs text-gray-500 font-semibold">{training?.name}</div>
+            {nav.map(n=>(
+              <div key={n.id} className={`px-5 py-3 cursor-pointer text-sm flex items-center gap-2 ${page===n.id?'bg-gray-800 text-white border-l-2 border-blue-500':'text-gray-400 hover:text-white hover:bg-gray-800'}`} onClick={()=>setPage(n.id)}>
+                {n.icon} {n.label}
+              </div>
+            ))}
+          </>
+        ):(
+          <div className="px-5 py-3 bg-gray-800 text-white text-sm flex items-center gap-2">📋 연수 목록</div>
+        )}
+        <div className="mt-auto p-4 border-t border-gray-700">
+          <button className="w-full text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 py-2 px-3 rounded" onClick={()=>{sessionStorage.removeItem('kosdaq_v4_auth');setLoggedIn(false)}}>🔒 로그아웃</button>
+        </div>
+      </div>
+      <div className="mobile-nav bg-white border-b p-2 overflow-x-auto gap-2 fixed top-0 left-0 right-0 z-50">
+        {selTraining&&<button className="px-3 py-1 text-xs border rounded whitespace-nowrap" onClick={goBack}>← 목록</button>}
+        {nav.map(n=><button key={n.id} className={`px-3 py-1 text-xs rounded whitespace-nowrap ${page===n.id?'bg-blue-600 text-white':'border'}`} onClick={()=>setPage(n.id)}>{n.icon} {n.label}</button>)}
+      </div>
+      <main className="flex-1 p-6 overflow-x-auto md:p-6 pt-14 md:pt-6">{pg()}</main>
+      {toast&&<div className={`fixed bottom-6 right-6 px-6 py-3 rounded-xl text-white font-semibold z-50 ${toast.type==='ok'?'bg-green-600':toast.type==='err'?'bg-red-600':'bg-yellow-600'}`} style={{animation:'popIn .3s'}}>{toast.msg}</div>}
+      {scanResult&&<div className={`scan-result-big ${scanResult.type}`}>
+        <div className="text-6xl mb-2">{scanResult.icon}</div>
+        <div className="text-3xl font-extrabold">{scanResult.name}</div>
+        <div className="text-lg mt-1 font-medium">{scanResult.detail}</div>
+      </div>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Login — uses getConfig API
+   ═══════════════════════════════════════════ */
+function Login({onLogin}){
+  const [pw,setPw]=useState('');
+  const [err,setErr]=useState(false);
+  const [loading,setLoading]=useState(false);
+
+  const handleLogin=async()=>{
+    setLoading(true);
+    try{
+      const res=await apiGet('getConfig');
+      const config=res.data||res||{};
+      const sysPw=config.시스템비밀번호||config.password||'kosdaq2026';
+      if(pw===sysPw){onLogin()}
+      else{setErr(true);setTimeout(()=>setErr(false),1500)}
+    }catch(e){
+      // Offline fallback
+      if(pw==='kosdaq2026'){onLogin()}
+      else{setErr(true);setTimeout(()=>setErr(false),1500)}
+    }finally{setLoading(false)}
+  };
+
+  return(
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-700 to-purple-800">
+      <div className="bg-white rounded-2xl p-10 shadow-2xl w-full max-w-sm">
+        <div className="text-center mb-8">
+          <div className="text-4xl mb-2">🏢</div>
+          <h1 className="text-xl font-bold">코스닥협회 QR 출석시스템</h1>
+          <p className="text-sm text-gray-500 mt-1">v4.0 — 관리자 로그인</p>
+        </div>
+        <input type="password" className="w-full px-4 py-3 border rounded-lg text-lg mb-3" placeholder="비밀번호" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')handleLogin()}} autoFocus disabled={loading}/>
+        {err&&<p className="text-red-600 text-sm mb-2 font-semibold">❌ 비밀번호가 틀렸습니다</p>}
+        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2" onClick={handleLogin} disabled={loading}>
+          {loading?<><Spinner/> 확인 중...</>:'로그인'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Dashboard
+   ═══════════════════════════════════════════ */
+function Dashboard({trainings,participants,cards,attendance,getStats,selectTraining,showToast,loadTrainings}){
+  const [showCreate,setShowCreate]=useState(false);
+  const [creating,setCreating]=useState(false);
+  const globalTotal=participants.length;
+  const globalCert=participants.filter(p=>p.certificateIssued).length;
+
+  const createTraining=async(form)=>{
+    setCreating(true);
+    try{
+      const res=await apiPost({
+        action:'addTraining',
+        연수명:form.name,
+        시작일:form.startDate,
+        종료일:form.endDate||form.startDate,
+        일수:form.days,
+        오전시작:form.amStart||'09:00',
+        오후시작:form.pmStart||'13:00',
+        /* 지각기준 제거 */
+        설문URL:form.surveyUrl||'',
+      });
+      if(res.status==='ok'){
+        showToast(`✅ "${form.name}" 연수 생성`);
+        setShowCreate(false);
+        await loadTrainings();
+      }else{
+        showToast(`❌ ${res.message||'생성 실패'}`,'err');
+      }
+    }catch(e){
+      showToast('❌ 연수 생성 실패 (네트워크 오류)','err');
+    }finally{setCreating(false)}
+  };
+
+  const [searchQ,setSearchQ]=useState('');
+  const [statusFilter,setStatusFilter]=useState('all');
+  const activeTrainings=trainings.filter(t=>t.status==='active');
+  const preparingList=trainings.filter(t=>t.status==='preparing');
+  const filteredTrainings=trainings.filter(t=>{
+    if(statusFilter!=='all'&&t.status!==statusFilter)return false;
+    if(searchQ&&!t.name.includes(searchQ))return false;
+    return true;
+  });
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">📋 연수 관리</h1>
+      {/* 진행 중인 연수 빠른 진입 */}
+      {activeTrainings.length>0&&<div className="mb-5">
+        <h2 className="text-sm font-semibold text-gray-500 mb-2">🔴 진행 중</h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          {activeTrainings.map(t=>{const s=getStats(t.id);return(
+            <div key={t.id} className="bg-green-50 border-2 border-green-400 rounded-xl p-4 cursor-pointer hover:-translate-y-0.5 transition-all" onClick={()=>selectTraining(t.id)}>
+              <div className="flex justify-between items-center">
+                <div><div className="font-bold text-lg">{t.name}</div><div className="text-xs text-gray-500">{t.startDate} ~ {t.endDate} · {t.days}일</div></div>
+                <div className="text-right"><div className="text-2xl font-bold text-green-700">{s.total}명</div><div className="text-xs text-gray-500">참가자</div></div>
+              </div>
+            </div>
+          )})}
+        </div>
+      </div>}
+      {/* 준비중 연수 */}
+      {preparingList.length>0&&<div className="mb-5">
+        <h2 className="text-sm font-semibold text-gray-500 mb-2">🛠️ 준비중</h2>
+        <div className="grid md:grid-cols-2 gap-3">
+          {preparingList.map(t=>{const s=getStats(t.id);return(
+            <div key={t.id} className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 cursor-pointer hover:-translate-y-0.5 transition-all" onClick={()=>selectTraining(t.id)}>
+              <div className="flex justify-between items-center">
+                <div><div className="font-bold">{t.name}</div><div className="text-xs text-gray-500">{t.startDate} ~ {t.endDate}</div></div>
+                <div className="text-right"><div className="text-lg font-bold text-yellow-700">{s.total}명</div></div>
+              </div>
+            </div>
+          )})}
+        </div>
+      </div>}
+      <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
+        <div className="flex gap-2 items-center flex-1 min-w-48">
+          <input type="search" className="flex-1 px-3 py-2 border rounded-lg text-sm" placeholder="🔍 연수명 검색..." value={searchQ} onChange={e=>setSearchQ(e.target.value)}/>
+          <select className="px-3 py-2 border rounded-lg text-sm" value={statusFilter} onChange={e=>setStatusFilter(e.target.value)}>
+            <option value="all">전체</option>
+            <option value="active">진행중</option>
+            <option value="preparing">준비중</option>
+            <option value="completed">완료</option>
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm hover:bg-blue-700" onClick={()=>setShowCreate(true)}>➕ 새 연수</button>
+          <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={()=>loadTrainings().then(()=>showToast('🔄 새로고침'))}>🔄</button>
+        </div>
+      </div>
+      {filteredTrainings.length===0&&<div className="bg-white rounded-xl p-12 text-center text-gray-400"><div className="text-5xl mb-3">📋</div><p>{searchQ||statusFilter!=='all'?'검색 결과가 없습니다.':'등록된 연수가 없습니다.'}<br/>{!searchQ&&statusFilter==='all'&&'새 연수를 만들어보세요!'}</p></div>}
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filteredTrainings.map(t=>{
+          const s=getStats(t.id);
+          return(
+            <div key={t.id} className="bg-white rounded-xl p-5 shadow-sm border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-0.5" onClick={()=>selectTraining(t.id)}>
+              <div className="flex justify-between items-start mb-2">
+                <div>
+                  <div className="font-bold">{t.name}</div>
+                  <div className="text-xs text-gray-500 mt-1">{t.startDate} ~ {t.endDate} · {t.days}일</div>
+                </div>
+                <span className={`text-xs px-2 py-1 rounded-full font-semibold ${t.status==='active'?'bg-green-100 text-green-800':t.status==='preparing'?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-600'}`}>{t.status==='active'?'진행중':t.status==='preparing'?'준비중':'완료'}</span>
+              </div>
+              <div className="text-sm text-gray-600">👥 참가자 <strong>{s.total}명</strong></div>
+            </div>
+          );
+        })}
+      </div>
+      {showCreate&&<CreateModal onClose={()=>setShowCreate(false)} onCreate={createTraining} creating={creating}/>}
+    </div>
+  );
+}
+
+function StatCard({title,value,icon,color}){
+  const colors={blue:'text-blue-600',green:'text-green-600',red:'text-red-600',yellow:'text-yellow-600'};
+  return(
+    <div className="bg-white rounded-xl p-4 shadow-sm">
+      <div className="text-xs text-gray-500 font-semibold">{icon} {title}</div>
+      <div className={`text-3xl font-bold mt-1 ${colors[color]||'text-gray-900'}`}>{value}</div>
+    </div>
+  );
+}
+
+function CreateModal({onClose,onCreate,creating}){
+  const [name,setName]=useState('');
+  const [days,setDays]=useState(1);
+  const [startDate,setStartDate]=useState('');
+  const [amStart,setAmStart]=useState('09:00');
+  const [pmStart,setPmStart]=useState('13:00');
+  const [lateMinutes,setLateMinutes]=useState(10);
+
+  const calcEndDate=()=>{
+    if(!startDate||days<=1)return startDate;
+    const d=new Date(startDate);let added=0;
+    while(added<days-1){d.setDate(d.getDate()+1);if(d.getDay()!==0&&d.getDay()!==6)added++}
+    return d.toISOString().slice(0,10);
+  };
+
+  return(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4" onClick={e=>e.stopPropagation()}>
+        <h2 className="text-lg font-bold mb-5">➕ 새 연수 만들기</h2>
+        <div className="mb-4"><label className="text-sm font-semibold block mb-1">연수명 *</label><input className="w-full px-3 py-2 border rounded-lg" value={name} onChange={e=>setName(e.target.value)} placeholder='예: "임원 – 오프라인 제1차"'/></div>
+        <div className="mb-4"><label className="text-sm font-semibold block mb-2">연수 일수 *</label>
+          <div className="flex gap-2">{[1,2,3,4,5].map(d=><button key={d} className={`px-4 py-2 rounded-lg font-semibold text-sm ${days===d?'bg-blue-600 text-white':'border hover:bg-gray-50'}`} onClick={()=>setDays(d)}>{d}일</button>)}</div>
+        </div>
+        <div className="mb-4"><label className="text-sm font-semibold block mb-1">시작일 *</label><input type="date" className="w-full px-3 py-2 border rounded-lg" value={startDate} onChange={e=>setStartDate(e.target.value)}/>
+          {startDate&&<div className="mt-2 text-sm text-blue-600 font-semibold">📅 {startDate} ~ {calcEndDate()} ({days}일간)</div>}
+        </div>
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div><label className="text-xs font-semibold block mb-1">오전 시작</label><input type="time" className="w-full px-2 py-2 border rounded-lg text-sm" value={amStart} onChange={e=>setAmStart(e.target.value)}/></div>
+          <div><label className="text-xs font-semibold block mb-1">오후 시작</label><input type="time" className="w-full px-2 py-2 border rounded-lg text-sm" value={pmStart} onChange={e=>setPmStart(e.target.value)}/></div>
+          {/* 지각기준 제거 */}
+        </div>
+        <div className="flex gap-3 justify-end">
+          <button className="px-4 py-2 border rounded-lg text-sm" onClick={onClose}>취소</button>
+          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm flex items-center gap-2" disabled={!name.trim()||!startDate||creating} onClick={()=>onCreate({name:name.trim(),days,startDate,endDate:calcEndDate(),amStart,pmStart})}>
+            {creating?<><Spinner/> 생성 중...</>:'✅ 생성'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Training Dashboard
+   ═══════════════════════════════════════════ */
+function TrainingDash({training,participants,cards,attendanceRecords,showToast,getStats}){
+  const s=getStats(training.id);
+
+  const dayStats=Array.from({length:training.days},(_,i)=>{
+    const d=i+1;
+    const am=attendanceRecords.filter(a=>a.day===d&&a.session==='AM').length;
+    const pm=attendanceRecords.filter(a=>a.day===d&&a.session==='PM').length;
+    return{day:d,am,pm,rate:participants.length?Math.round((am+pm)/(participants.length*2)*100):0};
+  });
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">📊 연수 대시보드</h1>
+      <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl p-6 mb-5">
+        <div className="text-sm text-blue-200">현재 연수</div>
+        <div className="text-2xl font-bold mt-1">{training.name}</div>
+        <div className="text-sm text-blue-200 mt-1">{training.startDate} ~ {training.endDate} · {training.days}일간</div>
+        <div className="mt-3 flex gap-2">
+          <span className={`text-xs px-3 py-1 rounded-full font-semibold ${training.status==='active'?'bg-green-400/30 text-green-100':training.status==='preparing'?'bg-yellow-400/30 text-yellow-100':'bg-gray-400/30 text-gray-200'}`}>{training.status==='active'?'진행중':training.status==='preparing'?'준비중':'완료'}</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+        <StatCard title="참가자" value={s.total} icon="👥"/>
+        <StatCard title="매핑률" value={`${s.mappingRate}%`} icon="🔗" color="blue"/>
+        <StatCard title="출석률" value={`${s.attendanceRate}%`} icon="✅" color="green"/>
+        <StatCard title="수료율" value={`${s.certRate}%`} icon="🎓" color="green"/>
+      </div>
+      <div className="bg-white rounded-xl p-5 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-500 mb-3">일별 출석 현황</h3>
+        <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 uppercase"><th className="text-left py-2">일차</th><th>오전</th><th>오후</th><th>출석률</th></tr></thead>
+          <tbody>{dayStats.map(ds=>(
+            <tr key={ds.day} className="border-t"><td className="py-2 font-semibold">{ds.day}일차</td><td className="text-center">{ds.am}/{s.total}</td><td className="text-center">{ds.pm}/{s.total}</td>
+              <td><div className="flex items-center gap-2"><div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden"><div className="h-full rounded-full" style={{width:`${ds.rate}%`,background:ds.rate>70?'#22c55e':ds.rate>40?'#eab308':'#ef4444'}}/></div><span className="text-xs w-8">{ds.rate}%</span></div></td></tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Upload
+   ═══════════════════════════════════════════ */
+function Upload({training,participants,showToast,loadParticipants}){
+  const [showQR,setShowQR]=useState(false);
+  const [uploading,setUploading]=useState(false);
+  const fileRef=useRef();
+
+  const handleExcel=async(e)=>{
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=async(ev)=>{
+      try{
+        const wb=XLSX.read(ev.target.result,{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        let rows=XLSX.utils.sheet_to_json(ws);
+        // 수강자료 엑셀: 2행이 부제목((수강자정보) 등)이면 제거
+        if(rows.length&&rows[0]){const v=Object.values(rows[0]).join('');if(v.includes('수강자정보')||v.includes('전자계산서'))rows=rows.slice(1)}
+        if(!rows.length){showToast('❌ 데이터가 없습니다','err');return}
+        const newPs=rows.map(r=>{
+          const name=r['이름']||r['name']||r['성명']||'';
+          const company=r['회사']||r['회사명']||r['소속사']||r['소속']||r['company']||'';
+          const position=r['직급']||r['position']||r['직위']||'';
+          const phone=r['연락처']||r['연락처(무선)']||r['전화번호']||r['phone']||r['핸드폰']||'';
+          const email=r['이메일']||r['email']||'';
+          const manager=r['담당자']||'';
+          if(!name)return null;
+          // 수강자료: 취소 상태 건너뛰기
+          const status=r['연수상태']||'';
+          if(status==='취소')return null;
+          return{이름:name.toString().trim(),회사:company.toString().trim(),직급:position.toString().trim(),연락처:phone.toString().trim(),이메일:email.toString().trim(),담당자:manager.toString().trim()};
+        }).filter(Boolean);
+        if(!newPs.length){showToast('❌ 유효한 참가자가 없습니다 (이름 컬럼 필요)','err');return}
+
+        setUploading(true);
+        const res=await apiPost({
+          action:'uploadParticipants',
+          tid:training.id,
+          participants:newPs,
+        });
+        if(res.status==='ok'){
+          showToast(`✅ ${newPs.length}명 업로드 완료!`);
+          await loadParticipants(training.id);
+        }else{
+          showToast(`❌ ${res.message||'업로드 실패'}`,'err');
+        }
+      }catch(err){showToast('❌ 오류: '+err.message,'err')}
+      finally{setUploading(false)}
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value='';
+  };
+
+  const addManual=async()=>{
+    const name=prompt('참가자 이름');if(!name)return;
+    const company=prompt('회사')||'';
+    const position=prompt('직급')||'';
+    const phone=prompt('연락처')||'';
+    try{
+      const res=await apiPost({
+        action:'uploadParticipants',
+        tid:training.id,
+        participants:[{이름:name.trim(),회사:company.trim(),직급:position.trim(),연락처:phone.trim(),이메일:'',담당자:''}],
+      });
+      if(res.status==='ok'){
+        showToast(`✅ ${name} 등록`);
+        await loadParticipants(training.id);
+      }else showToast(`❌ ${res.message||'등록 실패'}`,'err');
+    }catch(e){showToast('❌ 등록 실패','err')}
+  };
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">📁 명단 업로드 & QR 생성</h1>
+      <div className="bg-white rounded-xl p-6 mb-4 shadow-sm">
+        <h3 className="text-sm font-semibold text-gray-500 mb-3">엑셀 파일 업로드</h3>
+        <div className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer hover:border-blue-400 transition ${uploading?'border-blue-400 bg-blue-50':'border-gray-300'}`} onClick={()=>!uploading&&fileRef.current?.click()}>
+          {uploading?<><Spinner size="lg"/><div className="mt-3">업로드 중...</div></>:<>
+            <div className="text-4xl mb-2">📄</div>
+            <div>클릭하여 엑셀 파일 선택</div>
+            <div className="text-sm text-gray-500 mt-1">.xlsx 지원 | 수강자료 엑셀 그대로 업로드 가능 (취소 건 자동 제외)</div>
+          </>}
+        </div>
+        <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleExcel}/>
+      </div>
+      <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
+        <div className="font-semibold">등록된 참가자: {participants.length}명</div>
+        <div className="flex gap-2">
+          <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold" onClick={addManual}>➕ 수동 추가</button>
+          {participants.length>0&&<button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold" onClick={()=>setShowQR(true)}>🔲 QR코드 보기</button>}
+          <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={()=>loadParticipants(training.id).then(()=>showToast('🔄 새로고침'))}>🔄</button>
+        </div>
+      </div>
+      {participants.length>0&&<div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 uppercase bg-gray-50"><th className="text-left p-3">#</th><th className="text-left p-3">이름</th><th className="text-left p-3">회사</th><th className="text-left p-3">직급</th><th className="text-left p-3">연락처</th><th className="text-left p-3">QR 토큰</th></tr></thead>
+          <tbody>{participants.map((p,i)=>(
+            <tr key={p.id} className="border-t hover:bg-gray-50"><td className="p-3">{i+1}</td><td className="p-3 font-semibold">{p.name}</td><td className="p-3">{p.company}</td><td className="p-3">{p.position}</td><td className="p-3">{p.phone}</td>
+              <td className="p-3"><code className="text-xs bg-gray-100 px-2 py-1 rounded">{p.qrCode}</code></td></tr>
+          ))}</tbody>
+        </table>
+      </div>}
+      {showQR&&<QRModal participants={participants} onClose={()=>setShowQR(false)}/>}
+    </div>
+  );
+}
+
+function QRModal({participants,onClose}){
+  return(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl p-6 max-w-3xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold">🔲 참가자 QR코드</h2>
+          <div className="flex gap-2">
+            <button className="px-3 py-1 border rounded text-sm" onClick={()=>window.print()}>🖨️ 인쇄</button>
+            <button className="px-3 py-1 border rounded text-sm" onClick={onClose}>✕ 닫기</button>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 md:grid-cols-4 gap-3">
+          {participants.map(p=><QRCard key={p.id} data={p}/>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QRCard({data}){
+  const ref=useRef();
+  useEffect(()=>{if(ref.current&&window.QRCode)QRCode.toCanvas(ref.current,data.qrCode,{width:100,margin:1}).catch(()=>{});},[data.qrCode]);
+  return(
+    <div className="text-center p-3 border rounded-lg">
+      <canvas ref={ref} className="mx-auto" style={{maxWidth:90,maxHeight:90}}/>
+      <p className="text-xs font-bold mt-1">{data.name}</p>
+      <p className="text-xs text-gray-500">{data.company}</p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Mapping
+   ═══════════════════════════════════════════ */
+function MappingPage({training,participants,cards,showToast,showScanResult,loadCards,loadParticipants}){
+  const [pQr,setPQr]=useState('');
+  const [cQr,setCQr]=useState('');
+  const [showManual,setShowManual]=useState(false);
+  const [mapping,setMapping]=useState(false);
+  const pRef=useRef();
+  const cRef=useRef();
+
+  const found=useMemo(()=>{
+    if(!pQr)return null;
+    const p=participants.find(x=>x.qrCode===pQr);
+    return p||'notfound';
+  },[pQr,participants]);
+
+  useFocusLock(pRef,!found||found==='notfound');
+  useEffect(()=>{if(found&&found!=='notfound')setTimeout(()=>cRef.current?.focus(),50)},[found]);
+
+  const doMap=async()=>{
+    if(!found||found==='notfound'||!cQr||mapping)return;
+    setMapping(true);
+    try{
+      const res=await apiPost({action:'mapCard',cardId:cQr,participantId:found.id});
+      if(res.status==='ok'){
+        showScanResult('success','✅',found.name,`${cQr} 매핑 완료!`);
+        await loadCards();
+      }else{
+        showScanResult('error','❌','매핑 실패',res.error||res.message||'알 수 없는 오류');
+      }
+    }catch(e){
+      showScanResult('error','❌','네트워크 오류','서버 연결 실패');
+    }finally{
+      setMapping(false);
+      setTimeout(()=>{setPQr('');setCQr('');pRef.current?.focus()},1000);
+    }
+  };
+
+  const manualSelect=(p)=>{setPQr(p.qrCode);setShowManual(false)};
+  const mappedCount=cards.filter(c=>c.status!=='available'&&participants.some(p=>p.id===c.participantId)).length;
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">🔗 매핑 — 참가자 ↔ 출입카드</h1>
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <StatCard title="총 인원" value={participants.length} icon="👥"/>
+        <StatCard title="매핑 완료" value={mappedCount} icon="✅" color="green"/>
+        <StatCard title="대기 중" value={participants.length-mappedCount} icon="⏳" color="yellow"/>
+      </div>
+      <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-4 text-sm">💡 <strong>운영 안내:</strong> 스캐너 1로 참가자 QR → 스캐너 2로 출입카드 QR 스캔. Enter로 매핑 확정.</div>
+      <div className="bg-blue-50 border border-blue-300 rounded-xl p-3 mb-4 text-sm">💳 <strong>출입카드 관리:</strong> 카드 등록/삭제는 <a href="https://docs.google.com/spreadsheets/d/1cW8PARwBvDTz4Y6IXak85o-ZBRtxo_KhS1nlWy-tzzA" target="_blank" className="text-blue-600 underline">구글 시트</a>에서 직접 관리합니다.</div>
+      <div className="grid md:grid-cols-2 gap-4 mb-4">
+        <div className={`border-2 border-dashed rounded-xl p-6 text-center transition ${found&&found!=='notfound'?'border-green-500 bg-green-50':pQr?'border-blue-500 bg-blue-50':'border-gray-300'}`}>
+          <div className="text-4xl mb-2">📱</div>
+          <div className="font-bold mb-2">스캐너 1 — 참가자 QR</div>
+          <input ref={pRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={pQr} onChange={e=>setPQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&found&&found!=='notfound')cRef.current?.focus()}} placeholder="참가자 QR 스캔..." autoFocus/>
+          <div className="mt-2 flex gap-2 justify-center">
+            <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
+          </div>
+          {found&&found!=='notfound'&&<div className="mt-3 bg-white p-3 rounded-lg text-left"><div className="text-green-600 font-bold">✅ 본인 확인</div><div className="text-lg font-bold">{found.name} · {found.company}</div></div>}
+          {found==='notfound'&&<div className="mt-2 text-red-600 font-bold">❌ 미등록 QR</div>}
+        </div>
+        <div className={`border-2 border-dashed rounded-xl p-6 text-center transition ${cQr?'border-blue-500 bg-blue-50':'border-gray-300'}`}>
+          <div className="text-4xl mb-2">💳</div>
+          <div className="font-bold mb-2">스캐너 2 — 출입카드 QR</div>
+          <input ref={cRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={cQr} onChange={e=>setCQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter')doMap()}} placeholder="카드 QR 스캔..."/>
+        </div>
+      </div>
+      <div className="text-center mb-5">
+        <button className="px-8 py-4 bg-green-600 text-white text-xl rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2 mx-auto" onClick={doMap} disabled={!found||found==='notfound'||!cQr||mapping}>
+          {mapping?<><Spinner/> 매핑 중...</>:'🔗 매핑 확정 (Enter)'}
+        </button>
+      </div>
+      <div className="bg-white rounded-xl p-5 shadow-sm">
+        <div className="flex justify-between items-center mb-3">
+          <h3 className="text-sm font-semibold text-gray-500">매핑 내역</h3>
+          <button className="text-xs border px-2 py-1 rounded hover:bg-gray-50" onClick={()=>loadCards().then(()=>showToast('🔄 새로고침'))}>🔄</button>
+        </div>
+        <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 uppercase bg-gray-50"><th className="text-left p-2">참가자</th><th className="text-left p-2">소속</th><th className="text-left p-2">카드 QR</th><th className="p-2">상태</th></tr></thead>
+          <tbody>{participants.map(p=>{
+            const c=cards.find(c=>c.participantId===p.id&&c.status!=='available');
+            return <tr key={p.id} className="border-t"><td className="p-2 font-semibold">{p.name}</td><td className="p-2 text-gray-500">{p.company}</td><td className="p-2">{c?<code className="text-xs bg-gray-100 px-2 py-0.5 rounded">{c.qrCode}</code>:'-'}</td><td className="p-2 text-center">{c?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">매핑</span>:<span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">대기</span>}</td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+      {showManual&&<ManualSearch participants={participants} onSelect={manualSelect} onClose={()=>setShowManual(false)}/>}
+    </div>
+  );
+}
+
+/* ─── Manual Search ─── */
+function ManualSearch({participants,onSelect,onClose,title}){
+  const [q,setQ]=useState('');
+  const filtered=q.length>=1?participants.filter(p=>p.name.includes(q)||p.company.includes(q)):[];
+  return(
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl p-6 max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-bold">{title||'🔍 수동 검색'}</h2>
+          <button className="px-3 py-1 border rounded text-sm" onClick={onClose}>✕</button>
+        </div>
+        <input type="text" className="w-full px-4 py-3 border rounded-lg text-lg mb-3" placeholder="이름 또는 소속 검색..." value={q} onChange={e=>setQ(e.target.value)} autoFocus/>
+        {q.length>=1&&filtered.length===0&&<p className="text-center text-gray-400 py-4">검색 결과 없음</p>}
+        {filtered.slice(0,10).map(p=>(
+          <div key={p.id} className="flex items-center justify-between p-3 border rounded-lg mt-2 cursor-pointer hover:border-blue-500 hover:bg-blue-50" onClick={()=>onSelect(p)}>
+            <div><div className="font-bold">{p.name}</div><div className="text-sm text-gray-500">{p.company}</div></div>
+            <button className="px-3 py-1 bg-green-600 text-white rounded text-sm">선택</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Attendance
+   ═══════════════════════════════════════════ */
+function AttendancePage({training,participants,attendanceRecords,showToast,showScanResult,cards,loadAttendance,setAttendance,setCards,loadCards}){
+  const [day,setDay]=useState(1);
+  const [session,setSess]=useState('AM');
+  const [qrInput,setQr]=useState('');
+  const [showManual,setShowManual]=useState(false);
+  const [scanning,setScanning]=useState(false);
+  const inputRef=useRef();
+  const scanTimerRef=useRef(null);
+
+  useFocusLock(inputRef,!showManual&&!cardMappingTarget);
+
+  // 카드 매핑 대기 상태: 출석 후 카드 스캔 대기
+  const [cardMappingTarget,setCardMappingTarget]=useState(null); // 출석 완료된 참가자 — 카드 스캔 대기 중
+
+  const processAttendance=async(target,method='scanner')=>{
+    const existing=attendanceRecords.find(a=>a.participantId===target.id&&a.day===day&&a.session===session);
+    if(existing){showScanResult('duplicate','⚠️',target.name,`이미 출석 (${new Date(existing.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})})`);setQr('');return}
+
+    // 낙관적 UI: 즉시 출석 표시
+    const nowTime=new Date();
+    const optimisticAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session,checkedAt:nowTime.toISOString(),method,late:false};
+    setAttendance(prev=>[...prev,optimisticAtt]);
+    setQr('');
+
+    // 카드 매핑 여부 확인 — 매핑 안 된 참가자면 카드 스캔 유도 (1.5초 딜레이: 스캐너 송출 완료 대기)
+    const hasCard=cards.some(c=>c.participantId===target.id&&c.status==='mapped');
+    if(!hasCard){
+      showScanResult('success','✅',target.name,`출석 완료 — 3초 후 카드 스캔`);
+      setTimeout(()=>{setCardMappingTarget(target);setQr('')},3000);
+    }else{
+      showScanResult('success','✅',target.name,`${day}일차 ${session==='AM'?'오전':'오후'} 출석`);
+    }
+
+    // 백그라운드 서버 저장
+    try{
+      const res=await apiPost({action:'scan',qrCode:target.qrCode,day,session,method});
+      if(res.status==='ok'){
+        loadAttendance(training.id,day);
+      }else{
+        setAttendance(prev=>prev.filter(a=>a.id!==optimisticAtt.id));
+        showScanResult('error','❌',target.name,res.error||res.message||'서버 저장 실패');
+        setCardMappingTarget(null);
+      }
+    }catch(e){
+      showToast('⚠️ 오프라인: '+target.name+' 출석은 로컬 저장됨');
+    }
+  };
+
+  // 카드 매핑 처리 (출석 직후 카드 스캔)
+  const processCardMapping=async(cardCode)=>{
+    if(!cardMappingTarget)return;
+    const target=cardMappingTarget;
+    setCardMappingTarget(null);
+    showScanResult('success','✅',target.name,'출석 완료 + 카드 매핑');
+    setQr('');
+    // 로컬 cards 캐시 즉시 갱신 (낙관적)
+    const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString()};
+    setCards(prev=>[...prev,optimisticCard]);
+    // 백그라운드 매핑
+    try{
+      await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id});
+      loadCards();
+      showToast(`🔗 ${target.name} ← ${cardCode} 매핑 완료`);
+    }catch(e){
+      setCards(prev=>prev.filter(c=>c.id!==optimisticCard.id));
+      showToast('⚠️ 카드 매핑 실패: '+e.message);
+    }
+  };
+
+  const processQR=async(rawCode)=>{
+    const code=rawCode.replace(/[\r\n\t]/g,'').trim();
+    console.log('[QR] input:', JSON.stringify(code), 'len:', code.length);
+    console.log('[QR] participants sample qrCode:', participants[0]?.qrCode);
+
+    // 카드 매핑 대기 중이면 카드 매핑으로 처리
+    if(cardMappingTarget){
+      processCardMapping(code);
+      return;
+    }
+
+    let target=participants.find(p=>p.qrCode===code||p.qrCode?.toUpperCase()===code.toUpperCase());
+    console.log('[QR] participant match:', target?.name||'NONE');
+    if(!target){
+      // 출입카드 QR → 매핑된 카드 확인 (대소문자 무시)
+      const codeUpper=code.toUpperCase();
+      let card=cards.find(c=>(c.qrCode===code||c.qrCode?.toUpperCase()===codeUpper)&&c.status==='mapped');
+      console.log('[QR] local card match:', card?.participantId||'NONE');
+
+      // 로컬에 없으면 서버에서 cards 새로고침 후 재시도
+      if(!card){
+        try{await loadCards()}catch(e){}
+        // loadCards 비동기이므로 직접 서버 scan 호출
+      }
+
+      if(card){target=participants.find(p=>p.id===card.participantId);}
+
+      if(!target){
+        // 서버 scan API (출입카드+참가자 모두 검색)
+        setScanning(true);
+        try{
+          const res=await apiPost({action:'scan',qrCode:code,day,session,method:'scanner'});
+          if(res.status==='ok'){
+            const d=res.data||res;
+            const pName=d.이름||d.name||'';
+            const pCompany=d.회사||d.company||'';
+            showScanResult('success','✅',pName||'출석 완료',`${pCompany} · ${day}일차 ${session==='AM'?'오전':'오후'}`);
+            await loadAttendance(training.id,day);
+          }else{
+            showScanResult('error','❌','처리 실패',res.error||res.message||'미등록 QR');
+          }
+        }catch(e){
+          showScanResult('error','❌','네트워크 오류','서버 연결 실패');
+        }finally{setScanning(false);setQr('')}
+        return;
+      }
+    }
+    processAttendance(target);
+  };
+
+  const present=attendanceRecords.filter(a=>a.day===day&&a.session===session);
+
+  // Load attendance when day changes
+  useEffect(()=>{loadAttendance(training.id,day)},[day]);
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">✅ 출석 체크</h1>
+      <div className="bg-white rounded-xl p-4 mb-4 shadow-sm">
+        <div className="flex flex-wrap gap-4 items-center">
+          <div>
+            <label className="text-xs font-semibold block mb-1">일차</label>
+            <div className="flex gap-2">{Array.from({length:training.days},(_,i)=>i+1).map(d=><button key={d} className={`px-4 py-2 rounded-lg font-semibold text-sm ${day===d?'bg-blue-600 text-white':'border'}`} onClick={()=>setDay(d)}>Day {d}</button>)}</div>
+          </div>
+          <div>
+            <label className="text-xs font-semibold block mb-1">시간대</label>
+            <div className="flex gap-2">
+              <button className={`px-4 py-2 rounded-lg font-semibold text-sm ${session==='AM'?'bg-blue-600 text-white':'border'}`} onClick={()=>setSess('AM')}>☀️ 오전</button>
+              <button className={`px-4 py-2 rounded-lg font-semibold text-sm ${session==='PM'?'bg-blue-600 text-white':'border'}`} onClick={()=>setSess('PM')}>🌙 오후</button>
+            </div>
+          </div>
+          <div className="ml-auto text-center">
+            <div className="text-xs text-gray-500">출석률</div>
+            <div className="text-3xl font-bold text-blue-600">{present.length}/{participants.length}</div>
+          </div>
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <div className="bg-white rounded-xl p-5 shadow-sm mb-4">
+            <h3 className="text-sm font-semibold text-gray-500 mb-3">📱 QR 스캔</h3>
+            <input ref={inputRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=10){scanTimerRef.current=setTimeout(()=>{if(!scanning){processQR(trimmed);setQr('')}},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v&&!scanning){if(scanTimerRef.current)clearTimeout(scanTimerRef.current);processQR(v);setQr('')}}}} placeholder="카드 QR 또는 참가자 QR 스캔..." autoFocus/>
+            <div className="flex gap-2 mt-3">
+              <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
+              <button className="px-3 py-1 border rounded text-xs" onClick={()=>loadAttendance(training.id,day).then(()=>showToast('🔄 새로고침'))}>🔄 새로고침</button>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-500 mb-3">실시간 현황 ({day}일차 {session==='AM'?'오전':'오후'})</h3>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th><th className="p-2">상태</th><th className="p-2">시각</th></tr></thead>
+              <tbody>{participants.map(p=>{
+                const att=present.find(a=>a.participantId===p.id);
+                return <tr key={p.id} className="border-t"><td className="p-2 font-semibold">{p.name}</td><td className="p-2 text-gray-500 text-xs">{p.company}</td>
+                  <td className="p-2 text-center">{att?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">출석</span>:<span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">미출석</span>}</td>
+                  <td className="p-2 text-center text-xs">{att?new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}</td></tr>;
+              })}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {showManual&&<ManualSearch participants={participants} title="수동 출석" onClose={()=>setShowManual(false)} onSelect={p=>{processAttendance(p,'manual');setShowManual(false)}}/>}
+      {cardMappingTarget&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 매핑 건너뜀)')}}>
+        <div className="bg-white rounded-2xl p-8 shadow-2xl text-center max-w-md mx-4" onClick={e=>e.stopPropagation()}>
+          <div className="text-5xl mb-3">🪪</div>
+          <div className="text-xl font-bold mb-1">{cardMappingTarget.name}</div>
+          <div className="text-sm text-gray-500 mb-4">{cardMappingTarget.company}</div>
+          <div className="text-lg font-semibold text-blue-600 mb-2">출입카드를 스캔하세요</div>
+          <div className="text-sm text-gray-400 mb-4">카드 QR을 스캔하면 자동 매핑됩니다</div>
+          <input type="text" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder="카드 QR 스캔 대기..." autoFocus/>
+          <button className="px-6 py-2 bg-gray-200 rounded-lg text-sm font-medium" onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 없이)')}}>건너뛰기</button>
+        </div>
+      </div>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Completion
+   ═══════════════════════════════════════════ */
+function CompletionPage({training,participants,attendanceRecords,cards,showToast,showScanResult,loadParticipants,loadCards,loadAttendance}){
+  const [qrInput,setQr]=useState('');
+  const [target,setTarget]=useState(null);
+  const [cardQr,setCardQr]=useState('');
+  const [showManual,setShowManual]=useState(false);
+  const [tab,setTab]=useState('completion');
+  const [exitReason,setExitReason]=useState('개인사정');
+  const [exitMemo,setExitMemo]=useState('');
+  const [processing,setProcessing]=useState(false);
+  const inputRef=useRef();
+  const cardRef=useRef();
+
+  useFocusLock(inputRef,!target&&!showManual);
+
+  const totalSessions=training.days*2;
+  const minSessions=Math.ceil(totalSessions*2/3);
+  const getAttCount=(pid)=>attendanceRecords.filter(a=>a.participantId===pid).length;
+
+  const resolveTarget=(code)=>{
+    let t=participants.find(p=>p.qrCode===code);
+    if(!t){const c=cards.find(c=>c.qrCode===code&&c.status==='mapped');if(c)t=participants.find(p=>p.id===c.participantId)}
+    if(!t){showScanResult('error','❌','미등록','등록되지 않은 QR');setQr('');return}
+    setTarget(t);setQr('');
+    setTimeout(()=>cardRef.current?.focus(),50);
+  };
+
+  const processCompletion=async()=>{
+    if(!target||processing)return;
+    if(target.certificateIssued){showScanResult('duplicate','⚠️',target.name,'이미 수료 처리됨');reset();return}
+    const attCount=getAttCount(target.id);
+    const surveyOk=target.surveyCompleted;
+
+    setProcessing(true);
+    try{
+      // Return card if scanned
+      if(cardQr){
+        await apiPost({action:'returnCard',cardId:cardQr});
+      }
+      if(surveyOk&&attCount>=minSessions){
+        // Mark as completed — use markSurvey or a completion endpoint
+        // For now we just rely on the card return and survey status
+        showScanResult('success','🎓',target.name,'수료 완료! 수료증 생성 가능');
+        await Promise.all([loadParticipants(training.id),loadCards()]);
+      }else{
+        const reasons=[];
+        if(!surveyOk)reasons.push('설문 미완료');
+        if(attCount<minSessions)reasons.push(`출석 부족(${attCount}/${totalSessions})`);
+        showScanResult('error','❌',target.name,reasons.join(', '));
+      }
+    }catch(e){
+      showToast('❌ 처리 중 오류','err');
+    }finally{setProcessing(false);setTimeout(reset,1000)}
+  };
+
+  const processEarlyExit=async()=>{
+    if(!target||processing)return;
+    setProcessing(true);
+    try{
+      // Return card
+      const pCard=cards.find(c=>c.participantId===target.id&&c.status==='mapped');
+      if(pCard){
+        await apiPost({action:'returnCard',cardId:pCard.qrCode});
+      }
+      showScanResult('success','🚪',target.name,`중도퇴장 (${exitReason})`);
+      await loadCards();
+    }catch(e){
+      showToast('❌ 처리 중 오류','err');
+    }finally{setProcessing(false);setTimeout(reset,1000)}
+  };
+
+  const toggleSurvey=async(pid)=>{
+    try{
+      await apiPost({action:'markSurvey',participantId:pid});
+      await loadParticipants(training.id);
+      showToast('✅ 설문 상태 변경');
+    }catch(e){showToast('❌ 오류','err')}
+  };
+
+  const generateCertificate=(p)=>{
+    try{
+      const {jsPDF}=window.jspdf;
+      const doc=new jsPDF('landscape','mm','a4');
+      doc.setFontSize(36);doc.text('수 료 증',148,60,{align:'center'});
+      doc.setFontSize(20);doc.text(p.name,148,90,{align:'center'});
+      doc.setFontSize(14);doc.text(`소속: ${p.company}${p.position?' / '+p.position:''}`,148,110,{align:'center'});
+      doc.text(`연수: ${training.name}`,148,125,{align:'center'});
+      doc.text(`기간: ${training.startDate} ~ ${training.endDate}`,148,140,{align:'center'});
+      doc.text(`위 사람은 본 연수과정을 수료하였음을 증명합니다.`,148,165,{align:'center'});
+      doc.text(new Date().toLocaleDateString('ko-KR'),148,185,{align:'center'});
+      doc.text('코스닥협회장',148,200,{align:'center'});
+      doc.save(`수료증_${p.name}.pdf`);
+      showToast('📄 수료증 PDF 생성 완료');
+    }catch(e){showToast('❌ PDF 생성 오류: '+e.message,'err')}
+  };
+
+  const reset=()=>{setTarget(null);setQr('');setCardQr('');setExitReason('개인사정');setExitMemo('')};
+
+  const survDone=participants.filter(p=>p.surveyCompleted).length;
+  const certDone=participants.filter(p=>p.certificateIssued).length;
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">🎓 수료 처리</h1>
+      <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 mb-4 text-sm">📌 <strong>수료 조건:</strong> 전체 {totalSessions}세션 중 {minSessions}개 이상 출석 + 설문 완료</div>
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <StatCard title="설문 완료" value={survDone} icon="📝" color="blue"/>
+        <StatCard title="수료 발급" value={certDone} icon="🎓" color="green"/>
+        <StatCard title="카드 반납" value={cards.filter(c=>c.returnedAt&&participants.some(p=>p.id===c.participantId)).length} icon="💳"/>
+      </div>
+      <div className="flex gap-2 mb-4 border-b pb-2">
+        <button className={`px-4 py-2 font-semibold text-sm rounded-t ${tab==='completion'?'bg-blue-600 text-white':'border'}`} onClick={()=>{setTab('completion');reset()}}>🎓 수료 처리</button>
+        <button className={`px-4 py-2 font-semibold text-sm rounded-t ${tab==='exit'?'bg-orange-500 text-white':'border'}`} onClick={()=>{setTab('exit');reset()}}>🚪 중도퇴장</button>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl p-5 shadow-sm">
+          {tab==='completion'?(
+            !target?(
+              <div>
+                <h3 className="text-sm font-semibold text-gray-500 mb-3">참가자 QR 스캔</h3>
+                <input ref={inputRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>setQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&qrInput)resolveTarget(qrInput)}} placeholder="참가자 QR 스캔..." autoFocus/>
+                <div className="flex gap-2 mt-3">
+                  <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
+                </div>
+              </div>
+            ):(
+              <div>
+                <div className="bg-gray-50 p-4 rounded-xl mb-4">
+                  <div className="flex justify-between items-center">
+                    <div><div className="text-xl font-bold">{target.name}</div><div className="text-sm text-gray-500">{target.company}</div></div>
+                    <button className="px-3 py-1 border rounded text-xs" onClick={reset}>✕ 취소</button>
+                  </div>
+                  <div className="mt-3 space-y-1 text-sm">
+                    <div className={target.surveyCompleted?'text-green-600':'text-red-600 font-bold'}>{target.surveyCompleted?'✅ 설문 완료':'❌ 설문 미완료'} {!target.surveyCompleted&&<button className="ml-2 px-2 py-0.5 bg-yellow-500 text-white rounded text-xs" onClick={()=>toggleSurvey(target.id)}>수동 완료</button>}</div>
+                    <div className={getAttCount(target.id)>=minSessions?'text-green-600':'text-red-600 font-bold'}>{getAttCount(target.id)>=minSessions?'✅':'❌'} 출석 {getAttCount(target.id)}/{totalSessions} (최소 {minSessions})</div>
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <h4 className="text-sm font-semibold mb-2">💳 카드 반납 (카드 QR 스캔)</h4>
+                  <input ref={cardRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={cardQr} onChange={e=>setCardQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter')processCompletion()}} placeholder="출입카드 QR 스캔 (반납)..."/>
+                </div>
+                <button className="w-full px-6 py-4 bg-green-600 text-white text-lg rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2" onClick={processCompletion} disabled={processing}>
+                  {processing?<><Spinner/> 처리 중...</>:'🎓 수료 처리'}
+                </button>
+              </div>
+            )
+          ):(
+            !target?(
+              <div>
+                <h3 className="text-sm font-semibold text-gray-500 mb-3">🚪 중도퇴장 — QR 스캔</h3>
+                <div className="bg-orange-50 border border-orange-300 rounded-lg p-3 mb-3 text-sm">⚠️ 중도퇴장자는 <strong>미수료</strong> 처리됩니다.</div>
+                <input ref={inputRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>setQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&qrInput)resolveTarget(qrInput)}} placeholder="QR 스캔..." autoFocus/>
+                <button className="mt-3 px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
+              </div>
+            ):(
+              <div>
+                <div className="bg-gray-50 p-4 rounded-xl mb-4">
+                  <div className="flex justify-between"><div><div className="text-xl font-bold">{target.name}</div><div className="text-sm text-gray-500">{target.company}</div></div>
+                    <button className="px-3 py-1 border rounded text-xs" onClick={reset}>✕</button></div>
+                </div>
+                <div className="mb-3"><label className="text-sm font-semibold block mb-1">퇴장 사유</label>
+                  <select className="w-full px-3 py-2 border rounded-lg" value={exitReason} onChange={e=>setExitReason(e.target.value)}>
+                    {['개인사정','업무','건강','기타'].map(r=><option key={r}>{r}</option>)}
+                  </select></div>
+                <div className="mb-4"><label className="text-sm font-semibold block mb-1">메모</label>
+                  <textarea className="w-full px-3 py-2 border rounded-lg" value={exitMemo} onChange={e=>setExitMemo(e.target.value)} rows={2}/></div>
+                <button className="w-full px-6 py-4 bg-red-600 text-white text-lg rounded-xl font-bold hover:bg-red-700 disabled:opacity-50" onClick={processEarlyExit} disabled={processing}>
+                  {processing?'처리 중...':'🚪 중도퇴장 처리'}
+                </button>
+              </div>
+            )
+          )}
+        </div>
+        <div className="bg-white rounded-xl p-5 shadow-sm">
+          <h3 className="text-sm font-semibold text-gray-500 mb-3">참가자 현황</h3>
+          <div className="max-h-96 overflow-y-auto">
+            <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="p-2">설문</th><th className="p-2">수료</th><th className="p-2">수료증</th></tr></thead>
+              <tbody>{participants.map(p=>(
+                <tr key={p.id} className="border-t"><td className="p-2 font-semibold">{p.name}<br/><span className="text-xs text-gray-400">{p.company}</span></td>
+                  <td className="p-2 text-center">{p.surveyCompleted?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">완료</span>:<span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full cursor-pointer" onClick={()=>toggleSurvey(p.id)}>미완료</span>}</td>
+                  <td className="p-2 text-center">{p.certificateIssued?<span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">수료</span>:<span className="text-xs bg-gray-100 px-2 py-0.5 rounded-full">대기</span>}</td>
+                  <td className="p-2 text-center">{p.certificateIssued&&<button className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700" onClick={()=>generateCertificate(p)}>📄 PDF</button>}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {showManual&&<ManualSearch participants={participants} title={tab==='completion'?'수료 대상자':'중도퇴장 대상자'} onClose={()=>setShowManual(false)} onSelect={p=>{setTarget(p);setShowManual(false)}}/>}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Records
+   ═══════════════════════════════════════════ */
+function RecordsPage({training,participants,attendanceRecords,cards,showToast,loadAttendance,loadParticipants}){
+  const [search,setSearch]=useState('');
+  const filtered=participants.filter(p=>p.name.includes(search)||p.company.includes(search)||(p.phone||'').includes(search));
+  const dayArr=Array.from({length:training.days},(_,i)=>i+1);
+  const totalSessions=training.days*2;
+
+  // Load all attendance on mount
+  useEffect(()=>{loadAttendance(training.id)},[]);
+
+  const downloadExcel=()=>{
+    const rows=filtered.map(p=>{
+      const row={'이름':p.name,'회사':p.company,'직급':p.position||'','연락처':p.phone||''};
+      dayArr.forEach(d=>{
+        const am=attendanceRecords.find(a=>a.participantId===p.id&&a.day===d&&a.session==='AM');
+        const pm=attendanceRecords.find(a=>a.participantId===p.id&&a.day===d&&a.session==='PM');
+        row[`${d}일차 오전`]=am?new Date(am.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
+        row[`${d}일차 오후`]=pm?new Date(pm.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'';
+      });
+      const attCount=attendanceRecords.filter(a=>a.participantId===p.id).length;
+      row['출석률']=`${totalSessions?Math.round(attCount/totalSessions*100):0}%`;
+      const pCard=cards.find(c=>c.participantId===p.id&&c.status!=='available');
+      row['카드']=pCard?pCard.status==='returned'?'반납':pCard.status==='lost'?'분실':'보유':'';
+      row['카드번호']=pCard?.qrCode||'';
+      row['설문']=p.surveyCompleted?'완료':'미완료';
+      row['수료']=p.certificateIssued?'발급':'미발급';
+      return row;
+    });
+    const ws=XLSX.utils.json_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'출석부');
+    XLSX.writeFile(wb,`출석부_${training.name}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast('📥 엑셀 다운로드 완료');
+  };
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">📋 출석부 조회 — {training.name}</h1>
+      <div className="bg-white rounded-xl p-4 mb-4 shadow-sm flex flex-wrap gap-3 items-center">
+        <input type="search" className="flex-1 min-w-48 px-4 py-2 border rounded-lg" placeholder="🔍 이름, 소속사 검색..." value={search} onChange={e=>setSearch(e.target.value)}/>
+        <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold" onClick={downloadExcel}>📥 엑셀 다운로드</button>
+        <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={()=>Promise.all([loadAttendance(training.id),loadParticipants(training.id)]).then(()=>showToast('🔄 새로고침'))}>🔄</button>
+      </div>
+      <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
+        <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 uppercase bg-gray-50">
+          <th className="text-left p-2">#</th><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th>
+          {dayArr.map(d=>[<th key={`${d}a`} className="p-2">{d}일 오전</th>,<th key={`${d}p`} className="p-2">{d}일 오후</th>])}
+          <th className="p-2">출석률</th><th className="p-2">카드</th><th className="p-2">설문</th><th className="p-2">수료</th>
+        </tr></thead>
+          <tbody>{filtered.map((p,i)=>{
+            const attCount=attendanceRecords.filter(a=>a.participantId===p.id).length;
+            const rate=totalSessions?Math.round(attCount/totalSessions*100):0;
+            const pCard=cards.find(c=>c.participantId===p.id&&c.status!=='available');
+            return(
+              <tr key={p.id} className="border-t hover:bg-gray-50">
+                <td className="p-2">{i+1}</td><td className="p-2 font-semibold">{p.name}</td><td className="p-2 text-xs text-gray-500">{p.company}</td>
+                {dayArr.map(d=>{
+                  const am=attendanceRecords.find(a=>a.participantId===p.id&&a.day===d&&a.session==='AM');
+                  const pm=attendanceRecords.find(a=>a.participantId===p.id&&a.day===d&&a.session==='PM');
+                  return[
+                    <td key={`${d}A`} className="p-2 text-center"><span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${am?'bg-green-100 text-green-800':'bg-gray-100 text-gray-300'}`}>{am?'✓':'·'}</span></td>,
+                    <td key={`${d}P`} className="p-2 text-center"><span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${pm?'bg-green-100 text-green-800':'bg-gray-100 text-gray-300'}`}>{pm?'✓':'·'}</span></td>,
+                  ];
+                })}
+                <td className="p-2 text-center"><span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${rate>=80?'bg-green-100 text-green-800':rate>=50?'bg-yellow-100 text-yellow-800':'bg-red-100 text-red-800'}`}>{rate}%</span></td>
+                <td className="p-2 text-center">{pCard?(<div><span className={`text-xs px-2 py-0.5 rounded-full ${pCard.status==='returned'?'bg-green-100 text-green-800':pCard.status==='lost'?'bg-red-100 text-red-800':'bg-yellow-100 text-yellow-800'}`}>{pCard.status==='returned'?'반납':pCard.status==='lost'?'분실':'보유'}</span><div className="text-[10px] text-gray-400 mt-0.5">{pCard.qrCode?.replace('KOSDAQ-','')}</div></div>):'-'}</td>
+                <td className="p-2 text-center">{p.surveyCompleted?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">✓</span>:'-'}</td>
+                <td className="p-2 text-center">{p.certificateIssued?<span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">발급</span>:'-'}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
