@@ -469,23 +469,23 @@ body {
                         <div class="radio-group">
                             <label class="radio-item">
                                 <input type="radio" name="q5" value="교육 커리큘럼" onchange="updateAnswer('q5', this.value)">
-                                교육 커리큘럼 (교육 내용의 포괄성, 편성의 체계성, 교육 일정의 적절성 등)
+                                교육 커리큘럼 (교육의 포괄성, 편성의 체계성, 교육 일정의 적절성 등)
                             </label>
                             <label class="radio-item">
                                 <input type="radio" name="q5" value="사례 및 실무 중심 교육" onchange="updateAnswer('q5', this.value)">
-                                사례 및 실무 중심 교육 (최신 사례 반영, 실무에서 틀리기 쉬운 부분을 짚어줌 등)
+                                사례 및 실무 중심 교육 (최신 사례 반영, 실무에서 틀리기 쉬운 부분을 잡아줌 등)
                             </label>
                             <label class="radio-item">
                                 <input type="radio" name="q5" value="강사의 전문성 및 강의력" onchange="updateAnswer('q5', this.value)">
-                                강사의 전문성 및 강의력 (강사의 노하우, 이해하기 쉽고 상세한 설명, 질의응답 등)
+                                강사의 전문성 및 강의력 (강사의 노하우, 이해하기 쉽고 상세한 설명 등)
                             </label>
                             <label class="radio-item">
                                 <input type="radio" name="q5" value="교육 방법" onchange="updateAnswer('q5', this.value)">
-                                교육 방법 (오프라인/온라인 교육, 이론 중심 교육, 실습형 교육, 이론과 실습의 안배 등)
+                                교육 방법 (이론과 실무의 안배 등)
                             </label>
                             <label class="radio-item">
                                 <input type="radio" name="q5" value="연수 수강 환경" onchange="updateAnswer('q5', this.value)">
-                                연수 수강 환경 (연수장 또는 온라인교육센터 이용 만족 등)
+                                연수 수강 환경 (연수장 또는 식당 등)
                             </label>
                         </div>
                     </div>
@@ -495,23 +495,23 @@ body {
                         <div class="radio-group">
                             <label class="radio-item">
                                 <input type="radio" name="q6" value="교육 커리큘럼" onchange="updateAnswer('q6', this.value)">
-                                교육 커리큘럼 (강사 간 또는 타 교육과정 간 교육 내용이 겹침, 과목이 적거나 많음, 일정 효율화 등)
+                                교육 커리큘럼 (강사 간 교육 내용이 겹침, 과목이 적거나 많음, 일정 등)
                             </label>
                             <label class="radio-item">
-                                <input type="radio" name="q6" value="사례 보강 등을 통한 실무 중심 교육 강화" onchange="updateAnswer('q6', this.value)">
-                                사례 보강 등을 통한 실무 중심 교육 강화
+                                <input type="radio" name="q6" value="사례 보강 등 실무 내용" onchange="updateAnswer('q6', this.value)">
+                                사례 보강 등 실무 내용 더 필요
                             </label>
                             <label class="radio-item">
-                                <input type="radio" name="q6" value="강사의 강의력 개선" onchange="updateAnswer('q6', this.value)">
-                                강사의 강의력 개선 (동기유발, 전달력, 소통 능력 등)
+                                <input type="radio" name="q6" value="강사의 강의력" onchange="updateAnswer('q6', this.value)">
+                                강사의 강의력 (동기유발, 전달력, 소통 능력 등)
                             </label>
                             <label class="radio-item">
                                 <input type="radio" name="q6" value="교육 방법" onchange="updateAnswer('q6', this.value)">
-                                교육 방법 (이론에 치우침, 실습에 치우침 등)
+                                교육 방법 (이론과 실무의 안배 등)
                             </label>
                             <label class="radio-item">
                                 <input type="radio" name="q6" value="연수 수강 환경" onchange="updateAnswer('q6', this.value)">
-                                연수 수강 환경 (연수장 또는 온라인교육센터 이용 불만족 등)
+                                연수 수강 환경 (연수장, 식당 등)
                             </label>
                         </div>
                     </div>
@@ -559,14 +559,14 @@ body {
                     
                     <div class="question">
                         <div class="question-title">특히 인상적이었거나 개선이 필요한 과목이 있었다면 간단히 의견을 기술해 주세요.</div>
-                        <textarea class="text-input" placeholder="의견을 입력해주세요 (선택사항)" maxlength="2000" onchange="updateAnswer('text1', this.value)" oninput="updateCharCount('text1-count', this.value, 2000)"></textarea>
-                        <div class="char-count"><span id="text1-count">0</span>/2000</div>
+                        <textarea class="text-input" placeholder="의견을 입력해주세요 (선택사항)" maxlength="1000" onchange="updateAnswer('text1', this.value)" oninput="updateCharCount('text1-count', this.value, 1000)"></textarea>
+                        <div class="char-count"><span id="text1-count">0</span>/1000</div>
                     </div>
 
                     <div class="question">
-                        <div class="question-title">향후 더 나은 교육을 위해 본회에서 어떤 개선점이 필요하다고 생각하십니까? <span class="required">*</span></div>
-                        <textarea class="text-input" placeholder="개선점을 구체적으로 입력해주세요" maxlength="2000" onchange="updateAnswer('text2', this.value)" oninput="updateCharCount('text2-count', this.value, 2000)"></textarea>
-                        <div class="char-count"><span id="text2-count">0</span>/2000</div>
+                        <div class="question-title">향후 더 나은 교육을 위하여 본회에 요청하거나 개선할 점이 있다면 기재해 주세요. <span class="required">*</span></div>
+                        <textarea class="text-input" placeholder="개선점을 구체적으로 입력해주세요" maxlength="1000" onchange="updateAnswer('text2', this.value)" oninput="updateCharCount('text2-count', this.value, 1000)"></textarea>
+                        <div class="char-count"><span id="text2-count">0</span>/1000</div>
                     </div>
                 </div>
 
