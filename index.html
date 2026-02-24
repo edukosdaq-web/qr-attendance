@@ -304,6 +304,7 @@ function App(){
     {id:'attendance',icon:'✅',label:'출석 체크'},
     {id:'completion',icon:'🎓',label:'수료 처리'},
     {id:'records',icon:'📋',label:'출석부 조회'},
+    {id:'survey',icon:'📝',label:'설문 관리'},
   ]:[];
 
   const getStats=(tid)=>{
@@ -331,6 +332,7 @@ function App(){
       case 'attendance':return <AttendancePage {...props}/>;
       case 'completion':return <CompletionPage {...props}/>;
       case 'records':return <RecordsPage {...props}/>;
+      case 'survey':return <SurveyManager {...props}/>;
       default:return <TrainingDash {...props} getStats={getStats}/>;
     }
   };
@@ -1369,6 +1371,247 @@ function RecordsPage({training,participants,attendanceRecords,cards,showToast,lo
           })}</tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   Survey Manager
+   ═══════════════════════════════════════════ */
+function SurveyManager({training,participants,showToast}){
+  const [tab,setTab]=useState('config'); // config | results
+  const [questions,setQuestions]=useState([]);
+  const [loading,setLoading]=useState(true);
+  const [saving,setSaving]=useState(false);
+  const [results,setResults]=useState(null);
+  const [loadingResults,setLoadingResults]=useState(false);
+
+  // Load survey config
+  useEffect(()=>{
+    (async()=>{
+      setLoading(true);
+      try{
+        const res=await apiGet('getSurveyConfig',{tid:training.id});
+        if(res.status==='ok'&&res.data&&res.data.questions){
+          setQuestions(res.data.questions);
+        }
+      }catch(e){}
+      finally{setLoading(false)}
+    })();
+  },[training.id]);
+
+  const addGeneralTemplate=()=>{
+    const base=['교육 내용의 적절성','교육 운영의 적절성','교육 환경(장소/시설)','교재 및 자료 만족도','전반적 만족도','타인 추천 의향'];
+    const maxId=questions.reduce((m,q)=>{const n=parseInt(q.id.replace('q',''));return n>m?n:m},0);
+    const newQs=base.map((text,i)=>({id:'q'+(maxId+i+1),section:'일반',type:'rating',text}));
+    setQuestions(prev=>[...prev,...newQs]);
+  };
+
+  const addInstructorSection=()=>{
+    const name=prompt('강사명을 입력하세요');
+    if(!name||!name.trim())return;
+    const section='강사:'+name.trim();
+    const maxId=questions.reduce((m,q)=>{const n=parseInt(q.id.replace('q',''));return n>m?n:m},0);
+    const templates=[
+      {type:'rating',text:'강의력 (전달력, 흥미 유발)'},
+      {type:'rating',text:'전문성 (지식 수준, 사례 활용)'},
+      {type:'text',text:name.trim()+' 강사에 대한 의견'},
+      {type:'text',text:'추가 건의사항'}
+    ];
+    const newQs=templates.map((t,i)=>({id:'q'+(maxId+i+1),section,type:t.type,text:t.text}));
+    setQuestions(prev=>[...prev,...newQs]);
+  };
+
+  const addQuestion=(section)=>{
+    const maxId=questions.reduce((m,q)=>{const n=parseInt(q.id.replace('q',''));return n>m?n:m},0);
+    setQuestions(prev=>[...prev,{id:'q'+(maxId+1),section,type:'rating',text:''}]);
+  };
+
+  const updateQuestion=(id,field,value)=>{
+    setQuestions(prev=>prev.map(q=>q.id===id?{...q,[field]:value}:q));
+  };
+
+  const removeQuestion=(id)=>{
+    setQuestions(prev=>prev.filter(q=>q.id!==id));
+  };
+
+  const saveConfig=async()=>{
+    const invalid=questions.find(q=>!q.text.trim());
+    if(invalid){showToast('❌ 빈 문항이 있습니다','err');return}
+    setSaving(true);
+    try{
+      const res=await apiPost({action:'saveSurveyConfig',tid:training.id,questions});
+      if(res.status==='ok') showToast('✅ 설문 설정 저장 완료');
+      else showToast('❌ '+(res.message||'저장 실패'),'err');
+    }catch(e){showToast('❌ 저장 실패','err')}
+    finally{setSaving(false)}
+  };
+
+  const loadResults=async()=>{
+    setLoadingResults(true);
+    try{
+      const res=await apiGet('getSurveyResults',{tid:training.id});
+      if(res.status==='ok') setResults(res.data);
+      else showToast('❌ '+(res.message||'결과 로딩 실패'),'err');
+    }catch(e){showToast('❌ 결과 로딩 실패','err')}
+    finally{setLoadingResults(false)}
+  };
+
+  useEffect(()=>{if(tab==='results')loadResults()},[tab]);
+
+  const downloadResultsExcel=()=>{
+    if(!results||!results.responses.length){showToast('❌ 다운로드할 데이터가 없습니다','err');return}
+    const qs=results.questions||[];
+    const rows=results.responses.map(r=>{
+      const row={'이름':r.name,'제출시각':r.submittedAt};
+      qs.forEach(q=>{
+        const label=(q.section==='일반'?'':q.section.replace('강사:','')+'_')+q.text;
+        row[label]=r.answers[q.id]||'';
+      });
+      return row;
+    });
+    const ws=XLSX.utils.json_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'설문결과');
+    // 통계 시트
+    const statRows=qs.filter(q=>q.type==='rating').map(q=>{
+      const s=results.stats[q.id]||{};
+      return{'문항':q.text,'섹션':q.section,'응답수':s.count||0,'평균':s.avg||0,'1점':s.dist?s.dist[0]:0,'2점':s.dist?s.dist[1]:0,'3점':s.dist?s.dist[2]:0,'4점':s.dist?s.dist[3]:0,'5점':s.dist?s.dist[4]:0};
+    });
+    const ws2=XLSX.utils.json_to_sheet(statRows);
+    XLSX.utils.book_append_sheet(wb,ws2,'통계');
+    XLSX.writeFile(wb,`설문결과_${training.name}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast('📥 설문 결과 엑셀 다운로드 완료');
+  };
+
+  // Group questions by section
+  const sections=useMemo(()=>{
+    const map={};const list=[];
+    questions.forEach(q=>{
+      if(!map[q.section]){map[q.section]={name:q.section,questions:[]};list.push(map[q.section])}
+      map[q.section].questions.push(q);
+    });
+    return list;
+  },[questions]);
+
+  const RATING_LABELS=['매우불만족','불만족','보통','만족','매우만족'];
+
+  if(loading)return <div className="flex items-center gap-2"><Spinner/> 설문 설정 로딩 중...</div>;
+
+  return(
+    <div>
+      <h1 className="text-2xl font-bold mb-5">📝 설문 관리</h1>
+      <div className="flex gap-2 mb-4 border-b pb-2">
+        <button className={`px-4 py-2 font-semibold text-sm rounded-t ${tab==='config'?'bg-blue-600 text-white':'border'}`} onClick={()=>setTab('config')}>⚙️ 설문 설정</button>
+        <button className={`px-4 py-2 font-semibold text-sm rounded-t ${tab==='results'?'bg-blue-600 text-white':'border'}`} onClick={()=>setTab('results')}>📊 결과 보기</button>
+      </div>
+
+      {tab==='config'?(
+        <div>
+          <div className="bg-blue-50 border border-blue-300 rounded-xl p-3 mb-4 text-sm">
+            💡 <strong>설문 링크:</strong> 참가자 QR 페이지에서 자동으로 설문 링크가 표시됩니다. 별도 URL 설정 불필요!
+          </div>
+          {questions.length===0&&(
+            <div className="bg-white rounded-xl p-12 text-center text-gray-400 mb-4">
+              <div className="text-5xl mb-3">📝</div>
+              <p className="mb-4">설문 문항이 없습니다. 템플릿으로 시작하세요!</p>
+              <div className="flex gap-3 justify-center flex-wrap">
+                <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold" onClick={addGeneralTemplate}>📋 일반 문항 추가 (6개)</button>
+                <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold" onClick={addInstructorSection}>👨‍🏫 강사 섹션 추가</button>
+              </div>
+            </div>
+          )}
+          {sections.map(sec=>(
+            <div key={sec.name} className="bg-white rounded-xl p-5 shadow-sm mb-4">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-base font-bold">
+                  {sec.name==='일반'?'📋 교육 만족도':sec.name.startsWith('강사:')?'👨‍🏫 강사 평가 — '+sec.name.replace('강사:',''):sec.name}
+                </h3>
+                <button className="px-3 py-1 border rounded text-xs hover:bg-gray-50" onClick={()=>addQuestion(sec.name)}>+ 문항 추가</button>
+              </div>
+              {sec.questions.map((q,qi)=>(
+                <div key={q.id} className="flex gap-3 items-start mb-3 p-3 bg-gray-50 rounded-lg">
+                  <span className="text-xs text-gray-400 mt-2 w-6">{qi+1}</span>
+                  <div className="flex-1">
+                    <input type="text" className="w-full px-3 py-2 border rounded-lg text-sm mb-2" value={q.text} onChange={e=>updateQuestion(q.id,'text',e.target.value)} placeholder="문항 내용..."/>
+                    <select className="px-3 py-1 border rounded text-xs" value={q.type} onChange={e=>updateQuestion(q.id,'type',e.target.value)}>
+                      <option value="rating">5점 척도 (객관식)</option>
+                      <option value="text">주관식</option>
+                    </select>
+                  </div>
+                  <button className="px-2 py-1 text-red-500 hover:bg-red-50 rounded text-sm" onClick={()=>removeQuestion(q.id)}>🗑️</button>
+                </div>
+              ))}
+            </div>
+          ))}
+          {questions.length>0&&(
+            <div className="flex gap-3 flex-wrap mb-4">
+              <button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold" onClick={addGeneralTemplate}>📋 일반 문항 추가</button>
+              <button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold" onClick={addInstructorSection}>👨‍🏫 강사 섹션 추가</button>
+            </div>
+          )}
+          <div className="flex gap-3 justify-end">
+            <button className="px-6 py-3 bg-green-600 text-white rounded-xl font-bold text-sm flex items-center gap-2" onClick={saveConfig} disabled={saving}>
+              {saving?<><Spinner/> 저장 중...</>:'💾 설문 설정 저장'}
+            </button>
+          </div>
+        </div>
+      ):(
+        <div>
+          {loadingResults?<div className="flex items-center gap-2"><Spinner/> 결과 로딩 중...</div>:!results||!results.totalResponses?(
+            <div className="bg-white rounded-xl p-12 text-center text-gray-400">
+              <div className="text-5xl mb-3">📊</div>
+              <p>아직 설문 응답이 없습니다.</p>
+            </div>
+          ):(
+            <div>
+              <div className="flex justify-between items-center mb-4">
+                <div className="font-semibold">총 응답: {results.totalResponses}명 / {participants.length}명</div>
+                <div className="flex gap-2">
+                  <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold" onClick={downloadResultsExcel}>📥 엑셀 다운로드</button>
+                  <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={loadResults}>🔄</button>
+                </div>
+              </div>
+              {/* Rating stats */}
+              {(results.questions||[]).filter(q=>q.type==='rating').length>0&&(
+                <div className="bg-white rounded-xl p-5 shadow-sm mb-4">
+                  <h3 className="text-sm font-semibold text-gray-500 mb-3">📊 객관식 통계 (5점 척도)</h3>
+                  <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">섹션</th><th className="text-left p-2">문항</th><th className="p-2">응답</th><th className="p-2">평균</th><th className="p-2">분포</th></tr></thead>
+                    <tbody>{(results.questions||[]).filter(q=>q.type==='rating').map(q=>{
+                      const s=results.stats[q.id]||{count:0,avg:0,dist:[0,0,0,0,0]};
+                      const secLabel=q.section==='일반'?'일반':q.section.replace('강사:','');
+                      return(
+                        <tr key={q.id} className="border-t">
+                          <td className="p-2 text-xs text-gray-500">{secLabel}</td>
+                          <td className="p-2">{q.text}</td>
+                          <td className="p-2 text-center">{s.count}</td>
+                          <td className="p-2 text-center font-bold"><span className={s.avg>=4?'text-green-600':s.avg>=3?'text-yellow-600':'text-red-600'}>{s.avg}</span></td>
+                          <td className="p-2"><div className="flex gap-0.5">{(s.dist||[]).map((d,i)=><div key={i} className="text-center" style={{flex:1}}><div className="text-[10px] text-gray-400">{RATING_LABELS[i].charAt(0)}</div><div className="h-4 bg-gray-100 rounded-sm relative"><div className="absolute bottom-0 left-0 right-0 rounded-sm" style={{height:s.count?Math.max(2,d/s.count*16)+'px':'2px',background:i<2?'#ef4444':i===2?'#eab308':'#22c55e'}}/></div><div className="text-[10px]">{d}</div></div>)}</div></td>
+                        </tr>
+                      );
+                    })}</tbody>
+                  </table>
+                </div>
+              )}
+              {/* Text responses */}
+              {(results.questions||[]).filter(q=>q.type==='text').map(q=>{
+                const s=results.stats[q.id]||{texts:[]};
+                if(!s.texts||!s.texts.length)return null;
+                const secLabel=q.section==='일반'?'일반':q.section.replace('강사:','');
+                return(
+                  <div key={q.id} className="bg-white rounded-xl p-5 shadow-sm mb-4">
+                    <h3 className="text-sm font-semibold text-gray-500 mb-1">{secLabel}</h3>
+                    <h4 className="font-semibold mb-3">💬 {q.text} ({s.texts.length}건)</h4>
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {s.texts.map((t,i)=><div key={i} className="bg-gray-50 p-3 rounded-lg text-sm">{t}</div>)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
