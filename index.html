@@ -42,9 +42,12 @@ const {useState,useEffect,useRef,useCallback,useMemo}=React;
 const API_URL='https://script.google.com/macros/s/AKfycbz5sEyjgPzbzSGEQl9q3tI2_wJv5zX5YuAYkXpLM8ThsF3yJS6FaksEVl0CCl7R3dFP/exec';
 const DEV_MODE=false; // true이면 시뮬레이션 버튼 표시
 
-/* ─── API Helper ─── */
+/* ─── API Helper (인증키 포함) ─── */
+let AUTH_KEY=sessionStorage.getItem('kosdaq_v4_authkey')||'';
+function setAuthKey(key){AUTH_KEY=key;sessionStorage.setItem('kosdaq_v4_authkey',key)}
+
 async function apiGet(action,params={}){
-  const qs=new URLSearchParams({action,...params}).toString();
+  const qs=new URLSearchParams({action,authKey:AUTH_KEY,...params}).toString();
   const url=`${API_URL}?${qs}`;
   try{
     const res=await fetch(url,{redirect:'follow'});
@@ -62,7 +65,7 @@ async function apiPost(body){
       method:'POST',
       redirect:'follow',
       headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify(body),
+      body:JSON.stringify({...body,authKey:AUTH_KEY}),
     });
     const json=await res.json();
     return json;
@@ -389,15 +392,13 @@ function Login({onLogin}){
   const handleLogin=async()=>{
     setLoading(true);
     try{
-      const res=await apiGet('getConfig');
-      const config=res.data||res||{};
-      const sysPw=config.시스템비밀번호||config.password||'kosdaq2026';
-      if(pw===sysPw){onLogin()}
-      else{setErr(true);setTimeout(()=>setErr(false),1500)}
+      // 입력한 비밀번호를 authKey로 설정 후 API 호출로 검증
+      setAuthKey(pw);
+      const res=await apiGet('getTrainings');
+      if(res.status==='ok'){onLogin()}
+      else{setAuthKey('');setErr(true);setTimeout(()=>setErr(false),1500)}
     }catch(e){
-      // Offline fallback
-      if(pw==='kosdaq2026'){onLogin()}
-      else{setErr(true);setTimeout(()=>setErr(false),1500)}
+      setAuthKey('');setErr(true);setTimeout(()=>setErr(false),1500)
     }finally{setLoading(false)}
   };
 
