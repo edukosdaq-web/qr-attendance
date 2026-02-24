@@ -724,7 +724,8 @@ function Upload({training,participants,showToast,loadParticipants}){
           <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold" onClick={addManual}>➕ 수동 추가</button>
           {selected.size>0&&<button className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold" onClick={deleteSelected} disabled={deleting}>{deleting?'삭제 중...':` 🗑️ ${selected.size}명 삭제`}</button>}
           {participants.length>0&&<button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold" onClick={()=>{
-            const rows=participants.map(p=>({'성명':p.name,'이메일':p.email||'','휴대폰':(p.phone||'').replace(/-/g,''),'FAX번호':'','회사명':p.company||'','QR링크':p.qrCode||''}));
+            const QR_BASE='https://edukosdaq-web.github.io/qr-attendance/qr.html?token=';
+            const rows=participants.map(p=>({'성명':p.name,'이메일':p.email||'','휴대폰':(p.phone||'').replace(/-/g,''),'FAX번호':'','회사명':p.company||'','QR링크':QR_BASE+encodeURIComponent(p.qrCode)}));
             const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'수신자');
             XLSX.writeFile(wb,`문자발송_${training.name}_${new Date().toISOString().slice(0,10)}.xlsx`);showToast('📱 문자 발송용 엑셀 다운로드 완료');
           }}>📱 문자 발송용 엑셀</button>}
@@ -1313,13 +1314,14 @@ function RecordsPage({training,participants,attendanceRecords,cards,showToast,lo
   };
 
   const downloadSmsExcel=()=>{
+    const QR_BASE='https://edukosdaq-web.github.io/qr-attendance/qr.html?token=';
     const rows=participants.map(p=>({
       '성명':p.name,
       '이메일':p.email||'',
       '휴대폰':(p.phone||'').replace(/-/g,''),
       'FAX번호':'',
       '회사명':p.company||'',
-      'QR링크':p.qrCode||''
+      'QR링크':QR_BASE+encodeURIComponent(p.qrCode)
     }));
     const ws=XLSX.utils.json_to_sheet(rows);
     const wb=XLSX.utils.book_new();
