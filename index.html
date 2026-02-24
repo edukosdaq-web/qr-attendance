@@ -699,6 +699,22 @@ function Upload({training,participants,showToast,loadParticipants}){
     }catch(e){showToast('❌ 등록 실패','err')}
   };
 
+  const downloadSmsExcel=()=>{
+    const QR_BASE='https://edukosdaq-web.github.io/qr-attendance/qr.html?token=';
+    const rows=participants.map(p=>({
+      '이름':p.name,
+      '회사':p.company,
+      '직급':p.position||'',
+      '연락처':p.phone||'',
+      'QR링크':QR_BASE+encodeURIComponent(p.qrCode),
+    }));
+    const ws=XLSX.utils.json_to_sheet(rows);
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,ws,'문자발송용');
+    XLSX.writeFile(wb,`문자발송_${training.name}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    showToast('📥 문자발송용 엑셀 다운로드 완료');
+  };
+
   return(
     <div>
       <h1 className="text-2xl font-bold mb-5">📁 명단 업로드 & QR 생성</h1>
@@ -717,6 +733,7 @@ function Upload({training,participants,showToast,loadParticipants}){
         <div className="font-semibold">등록된 참가자: {participants.length}명</div>
         <div className="flex gap-2">
           <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold" onClick={addManual}>➕ 수동 추가</button>
+          {participants.length>0&&<button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold" onClick={downloadSmsExcel}>📥 문자발송용</button>}
           {participants.length>0&&<button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold" onClick={()=>setShowQR(true)}>🔲 QR코드 보기</button>}
           <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={()=>loadParticipants(training.id).then(()=>showToast('🔄 새로고침'))}>🔄</button>
         </div>
