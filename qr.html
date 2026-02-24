@@ -115,24 +115,22 @@ function showSurveyRequired(data){
     '<div class="survey-block">'+
       '<div class="survey-icon">📝</div>'+
       '<div class="survey-msg">설문조사를 먼저 완료해주세요</div>'+
-      '<div class="survey-sub">마지막 날 출석 QR코드는<br>설문조사 완료 후 표시됩니다.</div>'+
+      '<div class="survey-sub">마지막 날 출석 QR코드는<br>설문조사 완료 후 표시됩니다.<br><br><span style="font-size:12px;color:#999">※ 설문 시 입력하신 이름은 출석 확인 후<br>암호화 처리되어 설문 응답자는 확인되지 않습니다.</span></div>'+
       (data.surveyUrl?'<a class="survey-btn" href="'+escHtml(data.surveyUrl)+'" target="_blank">📝 설문조사 바로가기</a><br><br>':'')+
       '<span class="survey-btn" style="background:#22c55e;cursor:pointer" id="surveyDoneBtn">✅ 설문 완료했어요</span>'+
     '</div>';
   document.getElementById('surveyDoneBtn').onclick=async function(){
     this.textContent='확인 중...';this.style.opacity='0.6';this.style.pointerEvents='none';
-    try{
-      await fetch(API_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body:JSON.stringify({action:'markSurvey',participantId:data.participantId||''})});
-    }catch(e){}
-    // participantId가 없을 수 있으므로 token 기반으로 재확인
+    // markSurvey 호출하지 않음 — 관리자가 설문 완료 처리해야 QR 표시
+    // checkQRAccess만 재확인
     try{
       const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
       const json=await res.json();
       if(json.status==='ok'&&json.data&&json.data.allowed){
         showQR(json.data);
       }else{
-        this.textContent='❌ 설문이 아직 미완료 상태입니다';this.style.background='#ef4444';this.style.opacity='1';
-        setTimeout(()=>{this.textContent='✅ 설문 완료했어요';this.style.background='#22c55e';this.style.opacity='1';this.style.pointerEvents='auto'},2000);
+        this.textContent='❌ 설문이 아직 확인되지 않았습니다';this.style.background='#ef4444';this.style.opacity='1';
+        setTimeout(()=>{this.textContent='✅ 설문 완료했어요';this.style.background='#22c55e';this.style.opacity='1';this.style.pointerEvents='auto'},3000);
       }
     }catch(e){
       // 네트워크 오류 시 폴백으로 QR 표시
