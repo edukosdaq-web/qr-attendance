@@ -341,7 +341,6 @@ body {
                     <div class="logo">코스닥협회</div>
                     <div class="title">교육만족도 설문조사</div>
                     <div class="participant-info">
-                        <strong>${escapeHtml(surveyData.name)}</strong> (${escapeHtml(surveyData.company)})<br>
                         연수명: ${escapeHtml(surveyData.trainingName)}
                     </div>
                     <div class="privacy-notice">
@@ -558,13 +557,13 @@ body {
                     <div class="section-title">종합 의견</div>
                     
                     <div class="question">
-                        <div class="question-title">특히 인상적이었거나 개선이 필요한 과목이 있었다면 간단히 의견을 기술해 주세요.</div>
+                        <div class="question-title">특히 인상적이었거나 개선이 필요한 과목이 있었다면 간단히 의견을 기술해 주세요. <span style="font-weight:normal;color:#888">(선택사항, 1,000자 이내)</span></div>
                         <textarea class="text-input" placeholder="의견을 입력해주세요 (선택사항)" maxlength="1000" onchange="updateAnswer('text1', this.value)" oninput="updateCharCount('text1-count', this.value, 1000)"></textarea>
                         <div class="char-count"><span id="text1-count">0</span>/1000</div>
                     </div>
 
                     <div class="question">
-                        <div class="question-title">향후 더 나은 교육을 위하여 본회에 요청하거나 개선할 점이 있다면 기재해 주세요. <span class="required">*</span></div>
+                        <div class="question-title">향후 더 나은 교육을 위하여 본회에 요청하거나 개선할 점이 있다면 기재해 주세요. <span style="font-weight:normal;color:#888">(선택사항, 1,000자 이내)</span></div>
                         <textarea class="text-input" placeholder="개선점을 구체적으로 입력해주세요" maxlength="1000" onchange="updateAnswer('text2', this.value)" oninput="updateCharCount('text2-count', this.value, 1000)"></textarea>
                         <div class="char-count"><span id="text2-count">0</span>/1000</div>
                     </div>
@@ -651,7 +650,7 @@ body {
         }
 
         function validateAnswers() {
-            const required = ['q1', 'q2', 'q3', 'q4', 'text2'];
+            const required = ['q1', 'q2', 'q3', 'q4'];
             
             // Q4 분기에 따른 추가 필수 항목
             if (answers.q4 === '매우 만족' || answers.q4 === '만족') {
