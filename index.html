@@ -276,7 +276,21 @@ function App(){
   const loadAllForTraining=useCallback(async(tid)=>{
     setGlobalLoading(true);
     try{
-      await Promise.all([loadParticipants(tid),loadCards(),loadAttendance(tid)]);
+      // 배치 API로 한 번에 로딩
+      const res=await apiGet('getAllData',{tid});
+      if(res.status==='ok'&&res.data){
+        const d=res.data;
+        if(d.trainings){const list=d.trainings.map(mapTraining);setTrainings(list);cacheSet('trainings',list)}
+        if(d.participants){const list=d.participants.map(p=>mapParticipant(p,tid));setParticipants(prev=>[...prev.filter(p=>p.trainingId!==tid),...list]);cacheSet(`participants_${tid}`,list)}
+        if(d.cards){const list=d.cards.map(mapCard);setCards(list);cacheSet('cards',list)}
+        if(d.attendance){const list=d.attendance.map(mapAttendance);setAttendance(prev=>[...prev.filter(a=>a.trainingId!==tid),...list]);cacheSet(`attendance_${tid}`,list)}
+      }else{
+        // 폴백: 개별 호출
+        await Promise.all([loadParticipants(tid),loadCards(),loadAttendance(tid)]);
+      }
+    }catch(e){
+      // 폴백: 개별 호출
+      try{await Promise.all([loadParticipants(tid),loadCards(),loadAttendance(tid)])}catch(e2){}
     }finally{setGlobalLoading(false)}
   },[loadParticipants,loadCards,loadAttendance]);
 
