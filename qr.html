@@ -71,11 +71,8 @@ function showQR(){
 }
 
 async function checkAccess(){
-  // 타임아웃: 3초 내 응답 없으면 QR 표시
-  const timeout=setTimeout(()=>{ showQR(); },3000);
   try{
     const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
-    clearTimeout(timeout);
     const json=await res.json();
     if(json.status==='ok'&&json.data){
       const d=json.data;
@@ -89,7 +86,7 @@ async function checkAccess(){
       showQR();
     }
   }catch(e){
-    clearTimeout(timeout);
+    // 네트워크 오류 → QR 표시
     showQR();
   }
 }
