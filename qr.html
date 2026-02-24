@@ -50,16 +50,39 @@ const API_URL='https://script.google.com/macros/s/AKfycbz5sEyjgPzbzSGEQl9q3tI2_w
 const params=new URLSearchParams(location.search);
 const token=params.get('token');
 
+const CACHE_KEY='kosdaq_qr_'+token;
+const CACHE_TTL=300000; // 5분
+
 if(!token){
   showError('QR 토큰이 없습니다.','문자에서 링크를 다시 확인해주세요.');
 }else{
-  // QR을 미리 준비 (숨긴 상태) + API 체크 동시 진행
   prepareQR();
-  checkAccess();
+  // 캐시 확인 → 즉시 표시
+  const cached=getCache();
+  if(cached){
+    if(cached.allowed) showQR();
+    else{ document.getElementById('loading-area').style.display='none'; showSurveyRequired(cached); }
+    // 백그라운드 갱신
+    checkAccess(true);
+  }else{
+    checkAccess(false);
+  }
+}
+
+function getCache(){
+  try{
+    const raw=localStorage.getItem(CACHE_KEY);
+    if(!raw)return null;
+    const obj=JSON.parse(raw);
+    if(Date.now()-obj._ts>CACHE_TTL)return null;
+    return obj;
+  }catch(e){return null}
+}
+function setCache(data){
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify({...data,_ts:Date.now()}))}catch(e){}
 }
 
 function prepareQR(){
-  // QR 캔버스를 미리 그려둠 (아직 안 보임)
   document.getElementById('token-text').textContent=token;
   QRCode.toCanvas(document.getElementById('qr'),token,{width:220,margin:2}).catch(()=>{});
 }
@@ -70,24 +93,35 @@ function showQR(){
   document.getElementById('qr-area').style.display='block';
 }
 
-async function checkAccess(){
+async function checkAccess(silent){
   try{
     const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
     const json=await res.json();
     if(json.status==='ok'&&json.data){
       const d=json.data;
-      if(!d.allowed){
-        document.getElementById('loading-area').style.display='none';
-        showSurveyRequired(d);
+      setCache(d);
+      if(!silent){
+        if(!d.allowed){
+          document.getElementById('loading-area').style.display='none';
+          showSurveyRequired(d);
+        }else{
+          showQR();
+        }
       }else{
-        showQR();
+        // 백그라운드 갱신: 상태 변경 시 반영
+        if(d.allowed){
+          showQR();
+        }else if(document.getElementById('qr-area').style.display==='block'){
+          document.getElementById('qr-area').style.display='none';
+          document.getElementById('loading-area').style.display='none';
+          showSurveyRequired(d);
+        }
       }
-    }else{
+    }else if(!silent){
       showQR();
     }
   }catch(e){
-    // 네트워크 오류 → QR 표시
-    showQR();
+    if(!silent) showQR();
   }
 }
 
