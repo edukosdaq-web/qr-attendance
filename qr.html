@@ -82,10 +82,13 @@ function showQR(data){
   }
   // 마지막 날 + 설문 미완료 시 안내 배너
   let surveyBanner='';
-  if(data.isLastDay&&!data.surveyCompleted&&data.surveyUrl){
+  const surveyLink=data.surveyUrl||(data.hasSurvey?data.surveyPageUrl:'');
+  if(data.isLastDay&&!data.surveyCompleted&&surveyLink){
+    // 자체 설문인 경우 상대 경로 → 절대 경로 변환
+    const surveyHref=surveyLink.startsWith('http')?surveyLink:(location.href.replace(/[^/]*$/,'')+surveyLink);
     surveyBanner='<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-align:center">'+
       '<div style="font-size:14px;font-weight:600;color:#d97706;margin-bottom:6px">📝 설문조사를 완료해주세요</div>'+
-      '<a href="'+escHtml(data.surveyUrl)+'" target="_blank" style="display:inline-block;background:#2563eb;color:#fff;font-size:14px;font-weight:600;padding:8px 20px;border-radius:8px;text-decoration:none">설문조사 바로가기</a>'+
+      '<a href="'+escHtml(surveyHref)+'" target="_blank" style="display:inline-block;background:#2563eb;color:#fff;font-size:14px;font-weight:600;padding:8px 20px;border-radius:8px;text-decoration:none">설문조사 바로가기</a>'+
       '</div>';
   }
   content.innerHTML=nameHtml+surveyBanner+
@@ -115,14 +118,33 @@ function showSurveyRequired(data){
     '<div class="survey-block">'+
       '<div class="survey-icon">📝</div>'+
       '<div class="survey-msg">설문조사를 먼저 완료해주세요</div>'+
-      '<div class="survey-sub">마지막 날 출석 QR코드는<br>설문조사 완료 후 표시됩니다.<br><br><span style="font-size:12px;color:#999">※ 설문 시 입력하신 이름은 출석 확인 후<br>암호화 처리되어 설문 응답자는 확인되지 않습니다.</span></div>'+
-      (data.surveyUrl?'<a class="survey-btn" href="'+escHtml(data.surveyUrl)+'" target="_blank">📝 설문조사 바로가기</a><br><br>':'')+
+      '<div class="survey-sub">마지막 날 출석 QR코드는<br>설문조사 완료 후 표시됩니다.<br><br><span style="font-size:12px;color:#999">※ 설문 시 입력하신 정보는 출석 확인 후<br>암호화 처리되어 설문 응답자는 확인되지 않습니다.</span></div>'+
+      (function(){
+        // 자체 설문이 있으면 우선 사용, 없으면 외부 URL 사용
+        var sUrl='';
+        if(data.hasSurvey&&data.surveyPageUrl){
+          sUrl=data.surveyPageUrl;
+        }else if(data.surveyUrl){
+          sUrl=data.surveyUrl;
+        }
+        if(!sUrl)return '';
+        // 상대경로면 절대경로로 변환
+        var sHref=sUrl.startsWith('http')?sUrl:(location.href.replace(/[^/]*$/,'')+sUrl);
+        return '<a class="survey-btn" href="'+escHtml(sHref)+'" target="_blank">📝 설문조사 바로가기</a><br><br>';
+      })()+
       '<span class="survey-btn" style="background:#22c55e;cursor:pointer" id="surveyDoneBtn">✅ 설문 완료했어요</span>'+
     '</div>';
+  // 설문 탭에서 돌아오면 자동 재확인 (window focus 이벤트)
+  window.addEventListener('focus',function onFocus(){
+    window.removeEventListener('focus',onFocus);
+    setTimeout(()=>{
+      const btn=document.getElementById('surveyDoneBtn');
+      if(btn) btn.click();
+    },500);
+  });
   document.getElementById('surveyDoneBtn').onclick=async function(){
     this.textContent='확인 중...';this.style.opacity='0.6';this.style.pointerEvents='none';
-    // markSurvey 호출하지 않음 — 관리자가 설문 완료 처리해야 QR 표시
-    // checkQRAccess만 재확인
+    // markSurvey 호출하지 않고 checkQRAccess만 재확인
     try{
       const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
       const json=await res.json();
