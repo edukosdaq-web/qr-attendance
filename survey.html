@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>교육만족도 설문조사 - 코스닥협회</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { 
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+    background: #f5f7fa; 
+    color: #333; 
+    line-height: 1.6; 
+    padding: 20px 0; 
+}
+.container { 
+    max-width: 600px; 
+    margin: 0 auto; 
+    padding: 0 16px; 
+}
+.header {
+    text-align: center;
+    margin-bottom: 32px;
+    padding: 24px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.logo { 
+    font-size: 14px; 
+    color: #666; 
+    margin-bottom: 8px; 
+}
+.title { 
+    font-size: 24px; 
+    font-weight: 700; 
+    color: #1a365d; 
+    margin-bottom: 16px; 
+}
+.participant-info {
+    background: #e6f3ff;
+    padding: 16px;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    font-size: 14px;
+}
+.privacy-notice {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 12px;
+    color: #856404;
+    text-align: center;
+}
+
+.section {
+    background: #fff;
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.section-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a365d;
+    margin-bottom: 20px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #e2e8f0;
+}
+.question {
+    margin-bottom: 24px;
+}
+.question:last-child { margin-bottom: 0; }
+.question-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: #2d3748;
+}
+.required { color: #e53e3e; }
+
+.radio-group {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.radio-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    background: #f8f9fa;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.radio-item:hover {
+    background: #e6f3ff;
+    border-color: #3182ce;
+}
+.radio-item input[type="radio"] {
+    margin-right: 8px;
+    width: 16px;
+    height: 16px;
+}
+.radio-item.checked {
+    background: #e6f3ff;
+    border-color: #3182ce;
+}
+
+.scale-group {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.scale-item {
+    text-align: center;
+    padding: 12px 8px;
+    background: #f8f9fa;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+}
+.scale-item:hover {
+    background: #e6f3ff;
+    border-color: #3182ce;
+}
+.scale-item.selected {
+    background: #3182ce;
+    border-color: #3182ce;
+    color: #fff;
+}
+.scale-item input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    cursor: pointer;
+}
+.scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #666;
+    margin-top: 8px;
+}
+
+.text-input {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 80px;
+}
+.text-input:focus {
+    outline: none;
+    border-color: #3182ce;
+    box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+}
+.char-count {
+    text-align: right;
+    font-size: 12px;
+    color: #666;
+    margin-top: 4px;
+}
+
+.submit-section {
+    text-align: center;
+    padding: 32px 24px;
+}
+.submit-btn {
+    background: #3182ce;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    padding: 16px 48px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: background 0.2s;
+    min-width: 200px;
+}
+.submit-btn:hover:not(:disabled) {
+    background: #2c5282;
+}
+.submit-btn:disabled {
+    background: #cbd5e0;
+    cursor: not-allowed;
+}
+
+.complete-section {
+    text-align: center;
+    padding: 40px 24px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.complete-icon { font-size: 48px; margin-bottom: 16px; }
+.complete-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #38a169;
+    margin-bottom: 12px;
+}
+.complete-message {
+    color: #666;
+    margin-bottom: 24px;
+}
+.back-btn {
+    display: inline-block;
+    background: #f7fafc;
+    color: #3182ce;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 12px 24px;
+    border: 1px solid #cbd5e0;
+    border-radius: 8px;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.error-section {
+    text-align: center;
+    padding: 40px 24px;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.error-icon { font-size: 48px; margin-bottom: 16px; }
+.error-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: #e53e3e;
+    margin-bottom: 12px;
+}
+.error-message {
+    color: #666;
+    margin-bottom: 24px;
+}
+
+.loading {
+    text-align: center;
+    padding: 40px;
+}
+.spinner {
+    display: inline-block;
+    width: 32px;
+    height: 32px;
+    border: 3px solid #e2e8f0;
+    border-radius: 50%;
+    border-top-color: #3182ce;
+    animation: spin 1s linear infinite;
+    margin-bottom: 16px;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.conditional-section {
+    display: none;
+}
+.conditional-section.show {
+    display: block;
+}
+
+@media (max-width: 768px) {
+    .scale-group {
+        grid-template-columns: repeat(5, 1fr);
+        gap: 4px;
+    }
+    .scale-item {
+        padding: 8px 4px;
+        font-size: 14px;
+    }
+    .section {
+        padding: 20px;
+    }
+}
+</style>
+</head>
+<body>
+    <div class="container">
+        <div id="app">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>설문조사 정보를 불러오는 중...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'https://script.google.com/macros/s/AKfycbz5sEyjgPzbzSGEQl9q3tI2_wJv5zX5YuAYkXpLM8ThsF3yJS6FaksEVl0CCl7R3dFP/exec';
+        const params = new URLSearchParams(location.search);
+        const token = params.get('token');
+        const app = document.getElementById('app');
+
+        let surveyData = null;
+        let answers = {};
+
+        // 초기 로드
+        if (!token) {
+            showError('QR 토큰이 없습니다', '문자에서 링크를 다시 확인해주세요.');
+        } else {
+            loadSurvey();
+        }
+
+        async function loadSurvey() {
+            try {
+                const response = await fetch(`${API_URL}?action=getSurveyForParticipant&token=${encodeURIComponent(token)}`);
+                const result = await response.json();
+                
+                if (result.status === 'ok') {
+                    surveyData = result.data;
+                    if (surveyData.alreadySubmitted) {
+                        showAlreadySubmitted();
+                    } else {
+                        renderSurvey();
+                    }
+                } else {
+                    showError('오류 발생', result.message || '설문조사 정보를 불러올 수 없습니다.');
+                }
+            } catch (error) {
+                console.error('API 호출 오류:', error);
+                showError('네트워크 오류', '인터넷 연결을 확인하고 다시 시도해주세요.');
+            }
+        }
+
+        function renderSurvey() {
+            const subjects = surveyData.subjects || [];
+            
+            app.innerHTML = `
+                <div class="header">
+                    <div class="logo">코스닥협회</div>
+                    <div class="title">교육만족도 설문조사</div>
+                    <div class="participant-info">
+                        <strong>${escapeHtml(surveyData.name)}</strong> (${escapeHtml(surveyData.company)})<br>
+                        연수명: ${escapeHtml(surveyData.trainingName)}
+                    </div>
+                    <div class="privacy-notice">
+                        ⚡ 설문 시 입력하신 정보는 출석 확인 후 암호화 처리되어 설문 응답자는 확인되지 않습니다
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">기본 정보</div>
+                    
+                    <div class="question">
+                        <div class="question-title">Q1. 공시담당자로 근무하신지 얼마나 되셨습니까? <span class="required">*</span></div>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="q1" value="1년 미만" onchange="updateAnswer('q1', this.value)">
+                                1년 미만
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q1" value="1년 이상 ~ 3년 미만" onchange="updateAnswer('q1', this.value)">
+                                1년 이상 ~ 3년 미만
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q1" value="3년 이상 ~ 5년 미만" onchange="updateAnswer('q1', this.value)">
+                                3년 이상 ~ 5년 미만
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q1" value="5년 이상 ~ 10년 미만" onchange="updateAnswer('q1', this.value)">
+                                5년 이상 ~ 10년 미만
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q1" value="10년 이상" onchange="updateAnswer('q1', this.value)">
+                                10년 이상
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="question">
+                        <div class="question-title">Q2. 본 교육 수강 전, 공시와 관련한 본인의 업무 수행 능력을 어떻게 평가하십니까? <span class="required">*</span></div>
+                        <div class="scale-group" id="q2-scale">
+                            <div class="scale-item" onclick="selectScale('q2', 1)">
+                                <input type="radio" name="q2" value="1">
+                                <div>1</div>
+                            </div>
+                            <div class="scale-item" onclick="selectScale('q2', 2)">
+                                <input type="radio" name="q2" value="2">
+                                <div>2</div>
+                            </div>
+                            <div class="scale-item" onclick="selectScale('q2', 3)">
+                                <input type="radio" name="q2" value="3">
+                                <div>3</div>
+                            </div>
+                            <div class="scale-item" onclick="selectScale('q2', 4)">
+                                <input type="radio" name="q2" value="4">
+                                <div>4</div>
+                            </div>
+                            <div class="scale-item" onclick="selectScale('q2', 5)">
+                                <input type="radio" name="q2" value="5">
+                                <div>5</div>
+                            </div>
+                        </div>
+                        <div class="scale-labels">
+                            <span>매우 낮다</span>
+                            <span>매우 높다</span>
+                        </div>
+                    </div>
+
+                    <div class="question">
+                        <div class="question-title">Q3. 본 교육에서 가장 기대했던 것은 무엇입니까? <span class="required">*</span></div>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="q3" value="공시 업무에 대한 전반적 이해도 향상" onchange="updateAnswer('q3', this.value); toggleQ3Other(false)">
+                                공시 업무에 대한 전반적 이해도 향상
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q3" value="최신 이슈 및 사례 습득을 통한 실무 능력 향상" onchange="updateAnswer('q3', this.value); toggleQ3Other(false)">
+                                최신 이슈 및 사례 습득을 통한 실무 능력 향상
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q3" value="평소 업무 중 헷갈리거나 궁금했던 사항 해소" onchange="updateAnswer('q3', this.value); toggleQ3Other(false)">
+                                평소 업무 중 헷갈리거나 궁금했던 사항 해소
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q3" value="업무에 필요한 주요 일정 및 참고 자료 확인" onchange="updateAnswer('q3', this.value); toggleQ3Other(false)">
+                                업무에 필요한 주요 일정 및 참고 자료 확인
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q3" value="기타" onchange="updateAnswer('q3', '기타'); toggleQ3Other(true)">
+                                기타
+                            </label>
+                        </div>
+                        <div id="q3-other" style="display: none; margin-top: 12px;">
+                            <textarea class="text-input" placeholder="기타 의견을 입력해주세요" maxlength="200" onchange="updateAnswer('q3_text', this.value)" oninput="updateCharCount('q3-other-count', this.value, 200)"></textarea>
+                            <div class="char-count"><span id="q3-other-count">0</span>/200</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <div class="section-title">교육 만족도</div>
+                    
+                    <div class="question">
+                        <div class="question-title">Q4. 교육에 얼마나 만족하십니까? <span class="required">*</span></div>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="q4" value="매우 만족" onchange="updateAnswer('q4', this.value); toggleQ4Branch('satisfied')">
+                                매우 만족
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q4" value="만족" onchange="updateAnswer('q4', this.value); toggleQ4Branch('satisfied')">
+                                만족
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q4" value="불만족" onchange="updateAnswer('q4', this.value); toggleQ4Branch('dissatisfied')">
+                                불만족
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q4" value="매우 불만족" onchange="updateAnswer('q4', this.value); toggleQ4Branch('dissatisfied')">
+                                매우 불만족
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="question conditional-section" id="q5-section">
+                        <div class="question-title">Q5. 교육에 만족하셨다면, 어떤 점이 만족스러우셨습니까? <span class="required">*</span></div>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="q5" value="교육 커리큘럼" onchange="updateAnswer('q5', this.value)">
+                                교육 커리큘럼 (교육 내용의 포괄성, 편성의 체계성, 교육 일정의 적절성 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q5" value="사례 및 실무 중심 교육" onchange="updateAnswer('q5', this.value)">
+                                사례 및 실무 중심 교육 (최신 사례 반영, 실무에서 틀리기 쉬운 부분을 짚어줌 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q5" value="강사의 전문성 및 강의력" onchange="updateAnswer('q5', this.value)">
+                                강사의 전문성 및 강의력 (강사의 노하우, 이해하기 쉽고 상세한 설명, 질의응답 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q5" value="교육 방법" onchange="updateAnswer('q5', this.value)">
+                                교육 방법 (오프라인/온라인 교육, 이론 중심 교육, 실습형 교육, 이론과 실습의 안배 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q5" value="연수 수강 환경" onchange="updateAnswer('q5', this.value)">
+                                연수 수강 환경 (연수장 또는 온라인교육센터 이용 만족 등)
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="question conditional-section" id="q6-section">
+                        <div class="question-title">Q6. 교육에 불만족하셨다면, 어떤 점에 대한 개선이 필요하다고 생각하십니까? <span class="required">*</span></div>
+                        <div class="radio-group">
+                            <label class="radio-item">
+                                <input type="radio" name="q6" value="교육 커리큘럼" onchange="updateAnswer('q6', this.value)">
+                                교육 커리큘럼 (강사 간 또는 타 교육과정 간 교육 내용이 겹침, 과목이 적거나 많음, 일정 효율화 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q6" value="사례 보강 등을 통한 실무 중심 교육 강화" onchange="updateAnswer('q6', this.value)">
+                                사례 보강 등을 통한 실무 중심 교육 강화
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q6" value="강사의 강의력 개선" onchange="updateAnswer('q6', this.value)">
+                                강사의 강의력 개선 (동기유발, 전달력, 소통 능력 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q6" value="교육 방법" onchange="updateAnswer('q6', this.value)">
+                                교육 방법 (이론에 치우침, 실습에 치우침 등)
+                            </label>
+                            <label class="radio-item">
+                                <input type="radio" name="q6" value="연수 수강 환경" onchange="updateAnswer('q6', this.value)">
+                                연수 수강 환경 (연수장 또는 온라인교육센터 이용 불만족 등)
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                ${subjects.length > 0 ? `
+                <div class="section">
+                    <div class="section-title">과목별 만족도 평가</div>
+                    ${subjects.map((subject, index) => `
+                        <div class="question">
+                            <div class="question-title">${escapeHtml(subject.name)} - ${escapeHtml(subject.instructor)} <span class="required">*</span></div>
+                            <div class="scale-group" id="subject-${index}-scale">
+                                <div class="scale-item" onclick="selectScale('subject_${index}', 1)">
+                                    <input type="radio" name="subject_${index}" value="1">
+                                    <div>1</div>
+                                </div>
+                                <div class="scale-item" onclick="selectScale('subject_${index}', 2)">
+                                    <input type="radio" name="subject_${index}" value="2">
+                                    <div>2</div>
+                                </div>
+                                <div class="scale-item" onclick="selectScale('subject_${index}', 3)">
+                                    <input type="radio" name="subject_${index}" value="3">
+                                    <div>3</div>
+                                </div>
+                                <div class="scale-item" onclick="selectScale('subject_${index}', 4)">
+                                    <input type="radio" name="subject_${index}" value="4">
+                                    <div>4</div>
+                                </div>
+                                <div class="scale-item" onclick="selectScale('subject_${index}', 5)">
+                                    <input type="radio" name="subject_${index}" value="5">
+                                    <div>5</div>
+                                </div>
+                            </div>
+                            <div class="scale-labels">
+                                <span>매우 불만족</span>
+                                <span>매우 만족</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                ` : ''}
+
+                <div class="section">
+                    <div class="section-title">종합 의견</div>
+                    
+                    <div class="question">
+                        <div class="question-title">특히 인상적이었거나 개선이 필요한 과목이 있었다면 간단히 의견을 기술해 주세요.</div>
+                        <textarea class="text-input" placeholder="의견을 입력해주세요 (선택사항)" maxlength="2000" onchange="updateAnswer('text1', this.value)" oninput="updateCharCount('text1-count', this.value, 2000)"></textarea>
+                        <div class="char-count"><span id="text1-count">0</span>/2000</div>
+                    </div>
+
+                    <div class="question">
+                        <div class="question-title">향후 더 나은 교육을 위해 본회에서 어떤 개선점이 필요하다고 생각하십니까? <span class="required">*</span></div>
+                        <textarea class="text-input" placeholder="개선점을 구체적으로 입력해주세요" maxlength="2000" onchange="updateAnswer('text2', this.value)" oninput="updateCharCount('text2-count', this.value, 2000)"></textarea>
+                        <div class="char-count"><span id="text2-count">0</span>/2000</div>
+                    </div>
+                </div>
+
+                <div class="submit-section">
+                    <button class="submit-btn" onclick="submitSurvey()">설문조사 제출</button>
+                </div>
+            `;
+
+            // 라디오 버튼 스타일링
+            addRadioListeners();
+        }
+
+        function addRadioListeners() {
+            document.querySelectorAll('.radio-item input[type="radio"]').forEach(radio => {
+                radio.addEventListener('change', function() {
+                    // 같은 name 그룹의 모든 라디오 아이템에서 checked 클래스 제거
+                    document.querySelectorAll(`input[name="${this.name}"]`).forEach(r => {
+                        r.closest('.radio-item').classList.remove('checked');
+                    });
+                    // 선택된 아이템에 checked 클래스 추가
+                    this.closest('.radio-item').classList.add('checked');
+                });
+            });
+        }
+
+        function updateAnswer(key, value) {
+            answers[key] = value;
+        }
+
+        function selectScale(questionId, value) {
+            updateAnswer(questionId, value);
+            // 시각적 업데이트
+            const scaleGroup = document.getElementById(`${questionId.replace('_', '-')}-scale`);
+            if (scaleGroup) {
+                scaleGroup.querySelectorAll('.scale-item').forEach((item, index) => {
+                    item.classList.toggle('selected', index + 1 === value);
+                });
+            }
+        }
+
+        function toggleQ3Other(show) {
+            const otherDiv = document.getElementById('q3-other');
+            if (otherDiv) {
+                otherDiv.style.display = show ? 'block' : 'none';
+                if (!show) {
+                    delete answers.q3_text;
+                }
+            }
+        }
+
+        function toggleQ4Branch(type) {
+            const q5Section = document.getElementById('q5-section');
+            const q6Section = document.getElementById('q6-section');
+            
+            if (type === 'satisfied') {
+                q5Section.classList.add('show');
+                q6Section.classList.remove('show');
+                delete answers.q6;
+                // q6 라디오 버튼 초기화
+                document.querySelectorAll('input[name="q6"]').forEach(r => {
+                    r.checked = false;
+                    r.closest('.radio-item').classList.remove('checked');
+                });
+            } else if (type === 'dissatisfied') {
+                q5Section.classList.remove('show');
+                q6Section.classList.add('show');
+                delete answers.q5;
+                // q5 라디오 버튼 초기화
+                document.querySelectorAll('input[name="q5"]').forEach(r => {
+                    r.checked = false;
+                    r.closest('.radio-item').classList.remove('checked');
+                });
+            }
+        }
+
+        function updateCharCount(counterId, text, maxLength) {
+            const counter = document.getElementById(counterId);
+            if (counter) {
+                counter.textContent = text.length;
+                counter.style.color = text.length > maxLength ? '#e53e3e' : '#666';
+            }
+        }
+
+        function validateAnswers() {
+            const required = ['q1', 'q2', 'q3', 'q4', 'text2'];
+            
+            // Q4 분기에 따른 추가 필수 항목
+            if (answers.q4 === '매우 만족' || answers.q4 === '만족') {
+                required.push('q5');
+            } else if (answers.q4 === '불만족' || answers.q4 === '매우 불만족') {
+                required.push('q6');
+            }
+
+            // Q3 기타 선택 시 텍스트 필수
+            if (answers.q3 === '기타') {
+                required.push('q3_text');
+            }
+
+            // 과목별 평가 필수
+            if (surveyData && surveyData.subjects) {
+                surveyData.subjects.forEach((_, index) => {
+                    required.push(`subject_${index}`);
+                });
+            }
+
+            const missing = required.filter(key => !answers[key] || answers[key].toString().trim() === '');
+            
+            if (missing.length > 0) {
+                alert('필수 항목을 모두 입력해주세요.');
+                return false;
+            }
+
+            return true;
+        }
+
+        async function submitSurvey() {
+            if (!validateAnswers()) {
+                return;
+            }
+
+            const submitBtn = document.querySelector('.submit-btn');
+            const originalText = submitBtn.textContent;
+            submitBtn.disabled = true;
+            submitBtn.textContent = '제출 중...';
+
+            try {
+                // 과목별 점수 정리
+                const subjects = [];
+                if (surveyData && surveyData.subjects) {
+                    surveyData.subjects.forEach((subject, index) => {
+                        if (answers[`subject_${index}`]) {
+                            subjects.push({
+                                name: subject.name,
+                                instructor: subject.instructor,
+                                score: parseInt(answers[`subject_${index}`])
+                            });
+                        }
+                    });
+                }
+
+                const payload = {
+                    action: 'submitSurvey',
+                    token: token,
+                    answers: {
+                        ...answers,
+                        subjects: subjects
+                    }
+                };
+
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain' },
+                    body: JSON.stringify(payload)
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'ok') {
+                    showCompleted();
+                } else {
+                    throw new Error(result.message || '제출 중 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                console.error('제출 오류:', error);
+                alert('제출 중 오류가 발생했습니다: ' + error.message);
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+        }
+
+        function showCompleted() {
+            app.innerHTML = `
+                <div class="complete-section">
+                    <div class="complete-icon">✅</div>
+                    <div class="complete-title">설문조사가 완료되었습니다</div>
+                    <div class="complete-message">
+                        소중한 의견을 주셔서 감사합니다.<br>
+                        더 나은 교육 서비스 제공을 위해 활용하겠습니다.
+                    </div>
+                    <button class="back-btn" onclick="goBack()">QR코드 페이지로 돌아가기</button>
+                </div>
+            `;
+        }
+
+        function showAlreadySubmitted() {
+            app.innerHTML = `
+                <div class="error-section">
+                    <div class="error-icon">📝</div>
+                    <div class="error-title">이미 설문을 제출하셨습니다</div>
+                    <div class="error-message">
+                        이미 설문조사를 완료하셨습니다.<br>
+                        참여해 주셔서 감사합니다.
+                    </div>
+                    <button class="back-btn" onclick="goBack()">QR코드 페이지로 돌아가기</button>
+                </div>
+            `;
+        }
+
+        function showError(title, message) {
+            app.innerHTML = `
+                <div class="error-section">
+                    <div class="error-icon">⚠️</div>
+                    <div class="error-title">${escapeHtml(title)}</div>
+                    <div class="error-message">${escapeHtml(message)}</div>
+                    <button class="back-btn" onclick="goBack()">돌아가기</button>
+                </div>
+            `;
+        }
+
+        function goBack() {
+            if (history.length > 1) {
+                history.back();
+            } else {
+                window.location.href = `qr.html?token=${encodeURIComponent(token)}`;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>
