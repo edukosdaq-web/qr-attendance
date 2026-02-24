@@ -17,148 +17,124 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .info strong{color:#333}
 .tip{margin-top:16px;background:#fffbe6;border:1px solid #ffe58f;border-radius:10px;padding:10px 14px;font-size:12px;color:#ad8b00}
 .error{color:#e74c3c;font-size:15px;line-height:1.8;padding:20px 0}
-/* 설문 안내 */
 .survey-block{padding:20px 0}
 .survey-icon{font-size:48px;margin-bottom:12px}
 .survey-msg{font-size:16px;font-weight:600;color:#d97706;margin-bottom:8px}
 .survey-sub{font-size:13px;color:#666;margin-bottom:20px;line-height:1.6}
-.survey-btn{display:inline-block;background:#2563eb;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:12px;text-decoration:none;margin-bottom:12px}
+.survey-btn{display:inline-block;background:#2563eb;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:12px;text-decoration:none;margin-bottom:12px;cursor:pointer}
 .survey-btn:hover{background:#1d4ed8}
-.refresh-btn{display:inline-block;background:#f3f4f6;color:#374151;font-size:13px;font-weight:500;padding:10px 24px;border-radius:8px;text-decoration:none;cursor:pointer;border:1px solid #d1d5db}
-.refresh-btn:hover{background:#e5e7eb}
-.name-tag{font-size:18px;font-weight:700;color:#1f2937;margin-bottom:4px}
-.company-tag{font-size:13px;color:#6b7280;margin-bottom:16px}
+.survey-done-btn{display:inline-block;background:#22c55e;color:#fff;font-size:16px;font-weight:600;padding:14px 32px;border-radius:12px;text-decoration:none;cursor:pointer}
+.overlay{position:absolute;inset:0;background:rgba(255,255,255,.95);display:flex;align-items:center;justify-content:center;border-radius:20px;z-index:10}
 </style>
 </head>
 <body>
-<div class="card" id="card">
+<div class="card" id="card" style="position:relative">
   <div class="org">코스닥협회</div>
   <div class="title">출석 QR코드</div>
   <div id="content">
-    <div style="padding:20px 0;color:#999">확인 중...</div>
+    <div id="qr-area" style="display:none">
+      <div class="qr-wrap"><canvas id="qr"></canvas></div>
+      <div class="token" id="token-text"></div>
+      <div class="info">📋 <strong>안내</strong><br>• 현장 입구에서 이 화면을 보여주세요.<br>• 화면 밝기를 최대로 올려주세요.<br>• 이 페이지를 즐겨찾기 해두시면 편리합니다.</div>
+      <div class="tip">💡 스캔이 안 되면 화면 밝기를 최대로 올려주세요</div>
+    </div>
+    <div id="loading-area" style="padding:20px 0;color:#999">QR코드 생성 중...</div>
+    <div id="survey-area" style="display:none"></div>
+    <div id="error-area" style="display:none"></div>
   </div>
+  <div id="overlay" class="overlay" style="display:none"><div style="color:#999">확인 중...</div></div>
 </div>
 
 <script>
 const API_URL='https://script.google.com/macros/s/AKfycbz5sEyjgPzbzSGEQl9q3tI2_wJv5zX5YuAYkXpLM8ThsF3yJS6FaksEVl0CCl7R3dFP/exec';
 const params=new URLSearchParams(location.search);
 const token=params.get('token');
-const content=document.getElementById('content');
 
 if(!token){
-  content.innerHTML='<div class="error">QR 토큰이 없습니다.<br>문자에서 링크를 다시 확인해주세요.</div>';
+  showError('QR 토큰이 없습니다.','문자에서 링크를 다시 확인해주세요.');
 }else{
-  // API 호출하여 접근 가능 여부 확인
-  checkAccess();
+  // 즉시 QR 표시 (API 응답 기다리지 않음)
+  showQRInstant();
+  // 백그라운드로 설문 체크
+  checkAccessBackground();
 }
 
-async function checkAccess(){
+function showQRInstant(){
+  document.getElementById('loading-area').style.display='none';
+  document.getElementById('qr-area').style.display='block';
+  document.getElementById('token-text').textContent=token;
+  QRCode.toCanvas(document.getElementById('qr'),token,{width:220,margin:2}).catch(()=>{});
+}
+
+async function checkAccessBackground(){
   try{
     const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
     const json=await res.json();
-    
     if(json.status==='ok'&&json.data){
       const d=json.data;
-      if(d.allowed){
-        showQR(d);
-      }else{
+      if(!d.allowed){
+        // 설문 미완료 → QR 가리고 설문 안내
+        document.getElementById('qr-area').style.display='none';
         showSurveyRequired(d);
       }
-    }else{
-      // API 에러 → 폴백: QR 표시
-      showQRFallback();
+      // allowed면 이미 QR 표시 중이므로 아무것도 안 함
     }
   }catch(e){
-    // 네트워크 오류 → 폴백: QR 표시
-    showQRFallback();
+    // 네트워크 오류 → QR 유지 (이미 표시 중)
   }
-}
-
-function showQR(data){
-  let nameHtml='';
-  if(data.이름){
-    nameHtml='<div class="name-tag">'+escHtml(data.이름)+'</div>';
-    if(data.회사) nameHtml+='<div class="company-tag">'+escHtml(data.회사)+'</div>';
-  }
-  // 마지막 날 + 설문 미완료 시 안내 배너
-  let surveyBanner='';
-  const surveyLink=data.surveyUrl||(data.hasSurvey?data.surveyPageUrl:'');
-  if(data.isLastDay&&!data.surveyCompleted&&surveyLink){
-    // 자체 설문인 경우 상대 경로 → 절대 경로 변환
-    const surveyHref=surveyLink.startsWith('http')?surveyLink:(location.href.replace(/[^/]*$/,'')+surveyLink);
-    surveyBanner='<div style="background:#fef3c7;border:2px solid #f59e0b;border-radius:12px;padding:12px 16px;margin-bottom:16px;text-align:center">'+
-      '<div style="font-size:14px;font-weight:600;color:#d97706;margin-bottom:6px">📝 설문조사를 완료해주세요</div>'+
-      '<a href="'+escHtml(surveyHref)+'" target="_blank" style="display:inline-block;background:#2563eb;color:#fff;font-size:14px;font-weight:600;padding:8px 20px;border-radius:8px;text-decoration:none">설문조사 바로가기</a>'+
-      '</div>';
-  }
-  content.innerHTML=nameHtml+surveyBanner+
-    '<div class="qr-wrap"><canvas id="qr"></canvas></div>'+
-    '<div class="token">'+escHtml(token)+'</div>'+
-    '<div class="info">📋 <strong>안내</strong><br>• 현장 입구에서 이 화면을 보여주세요.<br>• 화면 밝기를 최대로 올려주세요.<br>• 이 페이지를 즐겨찾기 해두시면 편리합니다.</div>'+
-    '<div class="tip">💡 스캔이 안 되면 화면 밝기를 최대로 올려주세요</div>';
-  QRCode.toCanvas(document.getElementById('qr'),token,{width:220,margin:2}).catch(()=>{});
-}
-
-function showQRFallback(){
-  content.innerHTML=
-    '<div class="qr-wrap"><canvas id="qr"></canvas></div>'+
-    '<div class="token">'+escHtml(token)+'</div>'+
-    '<div class="info">📋 <strong>안내</strong><br>• 현장 입구에서 이 화면을 보여주세요.<br>• 화면 밝기를 최대로 올려주세요.<br>• 이 페이지를 즐겨찾기 해두시면 편리합니다.</div>'+
-    '<div class="tip">💡 스캔이 안 되면 화면 밝기를 최대로 올려주세요</div>';
-  QRCode.toCanvas(document.getElementById('qr'),token,{width:220,margin:2}).catch(()=>{});
 }
 
 function showSurveyRequired(data){
-  let nameHtml='';
-  if(data.이름){
-    nameHtml='<div class="name-tag">'+escHtml(data.이름)+'</div>';
-    if(data.회사) nameHtml+='<div class="company-tag">'+escHtml(data.회사)+'</div>';
+  // 설문 URL 결정: 자체 설문 vs 외부 URL
+  let surveyLink='';
+  if(data.hasSurvey){
+    surveyLink='survey.html?token='+encodeURIComponent(token);
+  }else if(data.surveyUrl){
+    surveyLink=data.surveyUrl;
   }
-  content.innerHTML=nameHtml+
+
+  const area=document.getElementById('survey-area');
+  area.style.display='block';
+  area.innerHTML=
     '<div class="survey-block">'+
       '<div class="survey-icon">📝</div>'+
       '<div class="survey-msg">설문조사를 먼저 완료해주세요</div>'+
-      '<div class="survey-sub">마지막 날 출석 QR코드는<br>설문조사 완료 후 표시됩니다.<br><br><span style="font-size:12px;color:#999">※ 설문 시 입력하신 정보는 출석 확인 후<br>암호화 처리되어 설문 응답자는 확인되지 않습니다.</span></div>'+
-      (function(){
-        // 자체 설문이 있으면 우선 사용, 없으면 외부 URL 사용
-        var sUrl='';
-        if(data.hasSurvey&&data.surveyPageUrl){
-          sUrl=data.surveyPageUrl;
-        }else if(data.surveyUrl){
-          sUrl=data.surveyUrl;
-        }
-        if(!sUrl)return '';
-        // 상대경로면 절대경로로 변환
-        var sHref=sUrl.startsWith('http')?sUrl:(location.href.replace(/[^/]*$/,'')+sUrl);
-        return '<a class="survey-btn" href="'+escHtml(sHref)+'" target="_blank">📝 설문조사 바로가기</a><br><br>';
-      })()+
-      '<span class="survey-btn" style="background:#22c55e;cursor:pointer" id="surveyDoneBtn">✅ 설문 완료했어요</span>'+
+      '<div class="survey-sub">마지막 날 출석 QR코드는<br>설문조사 완료 후 표시됩니다.<br><br><span style="font-size:12px;color:#999">※ 설문 시 입력하신 이름은 출석 확인 후<br>암호화 처리되어 설문 응답자는 확인되지 않습니다.</span></div>'+
+      (surveyLink?'<a class="survey-btn" href="'+escHtml(surveyLink)+'" target="_blank">📝 설문조사 바로가기</a><br><br>':'')+
+      '<span class="survey-done-btn" id="surveyDoneBtn">✅ 설문 완료했어요</span>'+
     '</div>';
-  // 설문 탭에서 돌아오면 자동 재확인 (window focus 이벤트)
+
+  // 설문 탭에서 돌아오면 자동 재확인
   window.addEventListener('focus',function onFocus(){
     window.removeEventListener('focus',onFocus);
-    setTimeout(()=>{
-      const btn=document.getElementById('surveyDoneBtn');
-      if(btn) btn.click();
-    },500);
+    const btn=document.getElementById('surveyDoneBtn');
+    if(btn) btn.click();
   });
+
   document.getElementById('surveyDoneBtn').onclick=async function(){
     this.textContent='확인 중...';this.style.opacity='0.6';this.style.pointerEvents='none';
-    // markSurvey 호출하지 않고 checkQRAccess만 재확인
     try{
       const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
       const json=await res.json();
       if(json.status==='ok'&&json.data&&json.data.allowed){
-        showQR(json.data);
+        area.style.display='none';
+        showQRInstant();
       }else{
         this.textContent='❌ 설문이 아직 확인되지 않았습니다';this.style.background='#ef4444';this.style.opacity='1';
         setTimeout(()=>{this.textContent='✅ 설문 완료했어요';this.style.background='#22c55e';this.style.opacity='1';this.style.pointerEvents='auto'},3000);
       }
     }catch(e){
-      // 네트워크 오류 시 폴백으로 QR 표시
-      showQRFallback();
+      area.style.display='none';
+      showQRInstant();
     }
   };
+}
+
+function showError(title,msg){
+  document.getElementById('loading-area').style.display='none';
+  const area=document.getElementById('error-area');
+  area.style.display='block';
+  area.innerHTML='<div class="error"><strong>'+escHtml(title)+'</strong><br>'+escHtml(msg)+'</div>';
 }
 
 function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
