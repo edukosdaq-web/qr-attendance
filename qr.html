@@ -38,7 +38,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       <div class="info">📋 <strong>안내</strong><br>• 현장 입구에서 이 화면을 보여주세요.<br>• 화면 밝기를 최대로 올려주세요.<br>• 이 페이지를 즐겨찾기 해두시면 편리합니다.</div>
       <div class="tip">💡 스캔이 안 되면 화면 밝기를 최대로 올려주세요</div>
     </div>
-    <div id="loading-area" style="padding:20px 0;color:#999">QR코드 생성 중...</div>
+    <div id="loading-area" style="padding:20px 0;color:#999">출석 정보 확인 중...</div>
     <div id="survey-area" style="display:none"></div>
     <div id="error-area" style="display:none"></div>
   </div>
@@ -53,34 +53,44 @@ const token=params.get('token');
 if(!token){
   showError('QR 토큰이 없습니다.','문자에서 링크를 다시 확인해주세요.');
 }else{
-  // 즉시 QR 표시 (API 응답 기다리지 않음)
-  showQRInstant();
-  // 백그라운드로 설문 체크
-  checkAccessBackground();
+  // QR을 미리 준비 (숨긴 상태) + API 체크 동시 진행
+  prepareQR();
+  checkAccess();
 }
 
-function showQRInstant(){
-  document.getElementById('loading-area').style.display='none';
-  document.getElementById('qr-area').style.display='block';
+function prepareQR(){
+  // QR 캔버스를 미리 그려둠 (아직 안 보임)
   document.getElementById('token-text').textContent=token;
   QRCode.toCanvas(document.getElementById('qr'),token,{width:220,margin:2}).catch(()=>{});
 }
 
-async function checkAccessBackground(){
+function showQR(){
+  document.getElementById('loading-area').style.display='none';
+  document.getElementById('survey-area').style.display='none';
+  document.getElementById('qr-area').style.display='block';
+}
+
+async function checkAccess(){
+  // 타임아웃: 3초 내 응답 없으면 QR 표시
+  const timeout=setTimeout(()=>{ showQR(); },3000);
   try{
     const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
+    clearTimeout(timeout);
     const json=await res.json();
     if(json.status==='ok'&&json.data){
       const d=json.data;
       if(!d.allowed){
-        // 설문 미완료 → QR 가리고 설문 안내
-        document.getElementById('qr-area').style.display='none';
+        document.getElementById('loading-area').style.display='none';
         showSurveyRequired(d);
+      }else{
+        showQR();
       }
-      // allowed면 이미 QR 표시 중이므로 아무것도 안 함
+    }else{
+      showQR();
     }
   }catch(e){
-    // 네트워크 오류 → QR 유지 (이미 표시 중)
+    clearTimeout(timeout);
+    showQR();
   }
 }
 
