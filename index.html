@@ -221,6 +221,9 @@ function App(){
   },[showToast]);
 
   const loadParticipants=useCallback(async(tid)=>{
+    // 캐시 우선 표시
+    const cached=cacheGet(`participants_${tid}`);
+    if(cached){setParticipants(prev=>[...prev.filter(p=>p.trainingId!==tid),...cached])}
     try{
       const res=await apiGet('getParticipants',{tid});
       const list=(res.data||res||[]).map(p=>mapParticipant(p,tid));
@@ -231,13 +234,13 @@ function App(){
       cacheSet(`participants_${tid}`,list);
       return list;
     }catch(e){
-      const cached=cacheGet(`participants_${tid}`);
-      if(cached){setParticipants(prev=>[...prev.filter(p=>p.trainingId!==tid),...cached]);return cached}
-      return[];
+      return cached||[];
     }
   },[]);
 
   const loadCards=useCallback(async()=>{
+    const cached=cacheGet('cards');
+    if(cached)setCards(cached);
     try{
       const res=await apiGet('getCards');
       const list=(res.data||res||[]).map(mapCard);
@@ -245,13 +248,17 @@ function App(){
       cacheSet('cards',list);
       return list;
     }catch(e){
-      const cached=cacheGet('cards');
-      if(cached)setCards(cached);
       return cached||[];
     }
   },[]);
 
   const loadAttendance=useCallback(async(tid,day)=>{
+    const ck=`attendance_${tid}${day?'_'+day:''}`;
+    const cached=cacheGet(ck);
+    if(cached){
+      if(day){setAttendance(prev=>[...prev.filter(a=>!(a.trainingId===tid&&a.day===Number(day))),...cached])}
+      else{setAttendance(prev=>[...prev.filter(a=>a.trainingId!==tid),...cached])}
+    }
     try{
       const params={tid};
       if(day)params.day=String(day);
@@ -268,10 +275,9 @@ function App(){
           return[...other,...list];
         });
       }
-      cacheSet(`attendance_${tid}${day?'_'+day:''}`,list);
+      cacheSet(ck,list);
       return list;
     }catch(e){
-      const cached=cacheGet(`attendance_${tid}${day?'_'+day:''}`);
       return cached||[];
     }
   },[]);
@@ -1038,7 +1044,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     const hasCard=cards.some(c=>c.participantId===target.id&&c.status==='mapped');
     if(!hasCard){
       showScanResult('success','✅',target.name,`출석 완료 — 3초 후 카드 스캔`);
-      setTimeout(()=>{setCardMappingTarget(target);setQr('')},3000);
+      setTimeout(()=>{setCardMappingTarget(target);setQr('')},1500);
     }else{
       showScanResult('success','✅',target.name,`${day}일차 오전 출석`);
     }
@@ -1265,10 +1271,13 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         <div className="bg-white rounded-xl p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-500 mb-3">실시간 현황 ({day}일차 {session==='AM'?'오전':'오후'})</h3>
           <div className="max-h-96 overflow-y-auto">
-            <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th><th className="p-2">상태</th><th className="p-2">시각</th></tr></thead>
+            <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th><th className="p-2">카드</th><th className="p-2">상태</th><th className="p-2">시각</th></tr></thead>
               <tbody>{participants.map(p=>{
                 const att=present.find(a=>a.participantId===p.id);
+                const card=cards.find(c=>c.participantId===p.id&&c.status==='mapped');
+                const cardLabel=card?card.qrCode.replace('KOSDAQ-C-','C-'):'—';
                 return <tr key={p.id} className="border-t"><td className="p-2 font-semibold">{p.name}</td><td className="p-2 text-gray-500 text-xs">{p.company}</td>
+                  <td className="p-2 text-center text-xs font-mono">{cardLabel}</td>
                   <td className="p-2 text-center">{att?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">출석</span>:<span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">미출석</span>}</td>
                   <td className="p-2 text-center text-xs">{att?new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}</td></tr>;
               })}</tbody>
