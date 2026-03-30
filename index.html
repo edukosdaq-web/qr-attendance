@@ -1040,9 +1040,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setAttendance(prev=>[...prev,optimisticAtt]);
     setQr('');
 
-    // AM: 출석 완료 표시 후 카드 스캔 유도 (매일 새로 매핑)
-    showScanResult('success','✅',target.name,`${day}일차 오전 출석 ✓ 카드를 대주세요`);
-    setTimeout(()=>{setCardMappingTarget(target);setQr('')},1000);
+    // AM: 바로 카드 스캔 모달 (매일 새로 매핑)
+    setCardMappingTarget(target);setQr('');
 
     // 백그라운드 서버 저장 (낙관적 UI 이미 반영됨, 재조회 안 함)
     try{
@@ -1065,27 +1064,29 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setQr('');
     
     if(session==='PM'&&isLastDay){
-      // 마지막날 PM: 카드 반납 + PM 출석 + 수료 판단
-      showScanResult('success','✅',target.name,'수료 처리 중...');
-      try{
-        const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
-        if(res.status==='ok'){
-          const d=res.data||res;
-          if(d.수료&&d.수료.수료처리됨){
-            showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
-          }else if(d.수료&&!d.수료.수료처리됨){
-            const reasons=(d.수료.미충족사유||[]).join(', ');
-            showScanResult('error','⚠️',target.name,'수료 조건 미충족: '+reasons);
-          }else{
-            showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
-          }
-          showToast(`💳 ${target.name} 카드 반납 완료`);
-        }else{
-          showScanResult('error','❌',target.name,res.message||'처리 실패');
-        }
-      }catch(e){
-        showScanResult('error','❌',target.name,'네트워크 오류');
+      // 마지막날 PM: 즉시 수료 판단 (낙관적 UI)
+      // 1) 낙관적 PM 출석 추가
+      const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+      setAttendance(prev=>[...prev,optAtt]);
+      // 2) 낙관적 카드 반납
+      setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
+      // 3) 즉시 수료 판단 (로컬 데이터)
+      const allAtt=[...attendanceRecords,optAtt].filter(a=>a.participantId===target.id&&a.trainingId===training.id);
+      const totalSessions=training.days*2;
+      const attRate=totalSessions>0?Math.round(allAtt.length/totalSessions*100):0;
+      const surveyDone=participants.find(p=>p.id===target.id)?.surveyCompleted;
+      const canGraduate=attRate>=80&&surveyDone;
+      if(canGraduate){
+        showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
+      }else{
+        const reasons=[];
+        if(attRate<80)reasons.push(`출석률 ${attRate}%`);
+        if(!surveyDone)reasons.push('설문 미완료');
+        showScanResult('error','⚠️',target.name,'수료 조건 미충족: '+reasons.join(', '));
       }
+      showToast(`💳 ${target.name} 카드 반납 완료`);
+      // 4) 백그라운드 API
+      apiPost({action:'returnCard',cardId:cardCode,day:day}).catch(()=>{});
     }else{
       // AM: 카드 매핑 (기존 로직)
       showScanResult('success','✅',target.name,'출석 완료 + 카드 매핑');
