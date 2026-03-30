@@ -1064,7 +1064,13 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setQr('');
     
     if(session==='PM'&&isLastDay){
-      // 마지막날 PM: 즉시 수료 판단 (낙관적 UI)
+      // 마지막날 PM: 카드 매칭 확인 후 수료 판단
+      const mappedCard=cards.find(c=>c.participantId===target.id&&c.status==='mapped');
+      if(!mappedCard||mappedCard.qrCode.toUpperCase()!==cardCode.toUpperCase()){
+        showScanResult('error','❌',target.name,mappedCard?`이 카드가 아닙니다. ${mappedCard.qrCode.replace('KOSDAQ-C-','C-')} 카드를 대주세요`:'매핑된 카드가 없습니다');
+        setCardMappingTarget(target);
+        return;
+      }
       // 1) 낙관적 PM 출석 추가
       const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
       setAttendance(prev=>[...prev,optAtt]);
@@ -1106,8 +1112,13 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
 
   // PM 비마지막날: 카드 QR로 직접 반납+PM출석 (낙관적 UI)
   const processCardReturnPM=async(cardCode)=>{
-    // 즉시 매핑된 참가자 찾아서 낙관적 표시
+    // 매핑된 카드인지 확인
     const card=cards.find(c=>(c.qrCode===cardCode||c.qrCode?.toUpperCase()===cardCode.toUpperCase())&&c.status==='mapped');
+    if(!card){
+      showScanResult('error','❌','카드 오류','오늘 매핑된 카드가 아닙니다');
+      setQr('');
+      return;
+    }
     const pName=card?participants.find(p=>p.id===card.participantId)?.name:'';
     if(pName){
       showScanResult('success','✅',pName,`오후 출석 + 카드 반납`);
