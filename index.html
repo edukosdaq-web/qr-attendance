@@ -306,7 +306,6 @@ function App(){
     {id:'upload',icon:'📁',label:'명단 업로드'},
     {id:'attendance',icon:'✅',label:'출석 체크'},
     {id:'completion',icon:'🎓',label:'수료 처리'},
-    {id:'card-return',icon:'💳',label:'카드 반납'},
     {id:'records',icon:'📋',label:'출석부 조회'},
     {id:'survey',icon:'📝',label:'설문 관리'},
   ]:[];
@@ -335,7 +334,6 @@ function App(){
       /* mapping 페이지 제거 — 출석 체크에서 자동 매핑 */
       case 'attendance':return <AttendancePage {...props}/>;
       case 'completion':return <CompletionPage {...props}/>;
-      case 'card-return':return <CardReturnPage {...props}/>;
       case 'records':return <RecordsPage {...props}/>;
       case 'survey':return <SurveyManager {...props}/>;
       default:return <TrainingDash {...props} getStats={getStats}/>;
@@ -1036,13 +1034,13 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setAttendance(prev=>[...prev,optimisticAtt]);
     setQr('');
 
-    // 카드 매핑 여부 확인 — 매핑 안 된 참가자면 카드 스캔 유도 (1.5초 딜레이: 스캐너 송출 완료 대기)
+    // AM 로직: 카드 매핑 여부 확인 — 매핑 안 된 참가자면 카드 스캔 유도
     const hasCard=cards.some(c=>c.participantId===target.id&&c.status==='mapped');
     if(!hasCard){
       showScanResult('success','✅',target.name,`출석 완료 — 3초 후 카드 스캔`);
       setTimeout(()=>{setCardMappingTarget(target);setQr('')},3000);
     }else{
-      showScanResult('success','✅',target.name,`${day}일차 ${session==='AM'?'오전':'오후'} 출석`);
+      showScanResult('success','✅',target.name,`${day}일차 오전 출석`);
     }
 
     // 백그라운드 서버 저장
@@ -1060,56 +1058,132 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     }
   };
 
-  // 카드 매핑 처리 (출석 직후 카드 스캔)
+  // 카드 처리: AM→매핑, PM 마지막날→반납+수료
   const processCardMapping=async(cardCode)=>{
     if(!cardMappingTarget)return;
     const target=cardMappingTarget;
     setCardMappingTarget(null);
-    showScanResult('success','✅',target.name,'출석 완료 + 카드 매핑');
     setQr('');
-    // 로컬 cards 캐시 즉시 갱신 (낙관적)
-    const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString()};
-    setCards(prev=>[...prev,optimisticCard]);
-    // 백그라운드 매핑
-    try{
-      await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id,day:day});
-      loadCards();
-      showToast(`🔗 ${target.name} ← ${cardCode} 매핑 완료`);
-    }catch(e){
-      setCards(prev=>prev.filter(c=>c.id!==optimisticCard.id));
-      showToast('⚠️ 카드 매핑 실패: '+e.message);
+    
+    if(session==='PM'&&isLastDay){
+      // 마지막날 PM: 카드 반납 + PM 출석 + 수료 판단
+      showScanResult('success','✅',target.name,'수료 처리 중...');
+      try{
+        const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
+        if(res.status==='ok'){
+          const d=res.data||res;
+          if(d.수료&&d.수료.수료처리됨){
+            showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
+          }else if(d.수료&&!d.수료.수료처리됨){
+            const reasons=(d.수료.미충족사유||[]).join(', ');
+            showScanResult('error','⚠️',target.name,'수료 조건 미충족: '+reasons);
+          }else{
+            showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
+          }
+          await Promise.all([loadAttendance(training.id,day),loadCards()]);
+          showToast(`💳 ${target.name} 카드 반납 완료`);
+        }else{
+          showScanResult('error','❌',target.name,res.message||'처리 실패');
+        }
+      }catch(e){
+        showScanResult('error','❌',target.name,'네트워크 오류');
+      }
+    }else{
+      // AM: 카드 매핑 (기존 로직)
+      showScanResult('success','✅',target.name,'출석 완료 + 카드 매핑');
+      const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString()};
+      setCards(prev=>[...prev,optimisticCard]);
+      try{
+        await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id,day:day,session:'AM'});
+        loadCards();
+        showToast(`🔗 ${target.name} ← ${cardCode} 매핑 완료`);
+      }catch(e){
+        setCards(prev=>prev.filter(c=>c.id!==optimisticCard.id));
+        showToast('⚠️ 카드 매핑 실패: '+e.message);
+      }
     }
+  };
+
+  const isLastDay=day===training.days;
+
+  // PM 비마지막날: 카드 QR로 직접 반납+PM출석
+  const processCardReturnPM=async(cardCode)=>{
+    setScanning(true);
+    try{
+      const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
+      if(res.status==='ok'){
+        const d=res.data||res;
+        const pName=d.참가자이름||'';
+        showScanResult('success','✅',pName,`${day}일차 오후 출석 + 카드 반납 완료`);
+        await Promise.all([loadAttendance(training.id,day),loadCards()]);
+        showToast(`💳 ${pName} 카드 반납 완료`);
+      }else{
+        showScanResult('error','❌','처리 실패',res.message||'카드 반납 실패');
+      }
+    }catch(e){
+      showScanResult('error','❌','네트워크 오류','서버 연결 실패');
+    }finally{setScanning(false);setQr('')}
   };
 
   const processQR=async(rawCode)=>{
     const code=rawCode.replace(/[\r\n\t]/g,'').trim();
     console.log('[QR] input:', JSON.stringify(code), 'len:', code.length);
-    console.log('[QR] participants sample qrCode:', participants[0]?.qrCode);
 
-    // 카드 매핑 대기 중이면 카드 매핑으로 처리
+    // 카드 매핑/반납 대기 중이면 카드 처리
     if(cardMappingTarget){
       processCardMapping(code);
       return;
     }
 
+    // ── PM 비마지막날: 카드 QR만 스캔 → 반납+PM출석 ──
+    if(session==='PM'&&!isLastDay){
+      // 카드 QR이면 직접 반납 처리
+      if(code.toUpperCase().startsWith('KOSDAQ-C')){
+        processCardReturnPM(code);
+        return;
+      }
+      // 참가자 QR이 스캔되면 안내
+      const pMatch=participants.find(p=>p.qrCode===code||p.qrCode?.toUpperCase()===code.toUpperCase());
+      if(pMatch){
+        showScanResult('info','ℹ️',pMatch.name,'오후에는 카드 QR만 스캔하세요 (카드 반납)');
+        setQr('');
+        return;
+      }
+      // 기타: 서버에서 카드 반납 시도
+      processCardReturnPM(code);
+      return;
+    }
+
+    // ── PM 마지막날: 참가자 QR 먼저 → 카드 스캔 ──
+    if(session==='PM'&&isLastDay){
+      // 참가자 QR 찾기
+      let target=participants.find(p=>p.qrCode===code||p.qrCode?.toUpperCase()===code.toUpperCase());
+      if(target){
+        const existing=attendanceRecords.find(a=>a.participantId===target.id&&a.day===day&&a.session==='PM');
+        if(existing){showScanResult('duplicate','⚠️',target.name,'이미 오후 출석 처리됨');setQr('');return}
+        showScanResult('success','✅',target.name,'카드를 반납해주세요');
+        setTimeout(()=>{setCardMappingTarget(target);setQr('')},1500);
+        return;
+      }
+      // 카드 QR이 먼저 스캔된 경우
+      if(code.toUpperCase().startsWith('KOSDAQ-C')){
+        showScanResult('error','⚠️','순서 오류','마지막 날에는 참가자 QR을 먼저 스캔해주세요');
+        setQr('');
+        return;
+      }
+      showScanResult('error','❌','미등록','등록되지 않은 QR');
+      setQr('');
+      return;
+    }
+
+    // ── AM: 기존 로직 ──
     let target=participants.find(p=>p.qrCode===code||p.qrCode?.toUpperCase()===code.toUpperCase());
-    console.log('[QR] participant match:', target?.name||'NONE');
     if(!target){
-      // 출입카드 QR → 매핑된 카드 확인 (대소문자 무시)
       const codeUpper=code.toUpperCase();
       let card=cards.find(c=>(c.qrCode===code||c.qrCode?.toUpperCase()===codeUpper)&&c.status==='mapped');
-      console.log('[QR] local card match:', card?.participantId||'NONE');
-
-      // 로컬에 없으면 서버에서 cards 새로고침 후 재시도
-      if(!card){
-        try{await loadCards()}catch(e){}
-        // loadCards 비동기이므로 직접 서버 scan 호출
-      }
-
+      if(!card){try{await loadCards()}catch(e){}}
       if(card){target=participants.find(p=>p.id===card.participantId);}
-
       if(!target){
-        // 서버 scan API (출입카드+참가자 모두 검색)
         setScanning(true);
         try{
           const res=await apiPost({action:'scan',qrCode:code,day,session,method:'scanner'});
@@ -1117,7 +1191,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
             const d=res.data||res;
             const pName=d.이름||d.name||'';
             const pCompany=d.회사||d.company||'';
-            showScanResult('success','✅',pName||'출석 완료',`${pCompany} · ${day}일차 ${session==='AM'?'오전':'오후'}`);
+            showScanResult('success','✅',pName||'출석 완료',`${pCompany} · ${day}일차 오전`);
             await loadAttendance(training.id,day);
           }else{
             showScanResult('error','❌','처리 실패',res.error||res.message||'미등록 QR');
@@ -1139,6 +1213,25 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   return(
     <div>
       <h1 className="text-2xl font-bold mb-5">✅ 출석 체크</h1>
+      {/* ── 세션별 안내 배너 ── */}
+      {/* AM 오전 입실 */}
+      {session==='AM'&&<div className="bg-green-50 border border-green-300 rounded-xl p-4 mb-4 text-center">
+        <div className="text-sm text-green-700">☀️ <strong>오전 입실</strong> — 참가자 QR 스캔 → 출입카드 스캔 → 출석 + 카드 수령</div>
+      </div>}
+      {/* PM 비마지막날 오후 퇴실 */}
+      {!isLastDay&&session==='PM'&&<div className="bg-blue-50 border border-blue-300 rounded-xl p-4 mb-4 text-center">
+        <div className="text-sm text-blue-700">🌙 <strong>오후 퇴실</strong> — 카드 QR만 스캔하면 오후 출석 + 카드 반납이 자동 처리됩니다.</div>
+      </div>}
+      {/* PM 마지막날 오후 수료 */}
+      {isLastDay&&session==='PM'&&<div className="bg-amber-50 border-2 border-amber-400 rounded-2xl p-6 mb-4 text-center">
+        <div className="text-4xl mb-3">📋</div>
+        <div className="text-xl font-bold text-amber-800 mb-2">마지막 날 오후 — 수료 처리</div>
+        <div className="text-base text-amber-700 leading-relaxed">
+          <strong>문자메세지로 받으신 QR을 찍어야만 수료가 됩니다.</strong><br/>
+          <strong>설문조사 완료 후 QR을 찍어주세요.</strong>
+        </div>
+        <div className="text-sm text-amber-600 mt-3">참가자 QR → 카드 QR 순서로 스캔</div>
+      </div>}
       <div className="bg-white rounded-xl p-4 mb-4 shadow-sm">
         <div className="flex flex-wrap gap-4 items-center">
           <div>
@@ -1184,15 +1277,19 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         </div>
       </div>
       {showManual&&<ManualSearch participants={participants} title="수동 출석" onClose={()=>setShowManual(false)} onSelect={p=>{processAttendance(p,'manual');setShowManual(false)}}/>}
-      {cardMappingTarget&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 매핑 건너뜀)')}}>
+      {cardMappingTarget&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{if(session==='AM'){setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 매핑 건너뜀)')}}}>
         <div className="bg-white rounded-2xl p-8 shadow-2xl text-center max-w-md mx-4" onClick={e=>e.stopPropagation()}>
-          <div className="text-5xl mb-3">🪪</div>
+          <div className="text-5xl mb-3">{isLastDay&&session==='PM'?'🎓':'🪪'}</div>
           <div className="text-xl font-bold mb-1">{cardMappingTarget.name}</div>
           <div className="text-sm text-gray-500 mb-4">{cardMappingTarget.company}</div>
-          <div className="text-lg font-semibold text-blue-600 mb-2">출입카드를 스캔하세요</div>
-          <div className="text-sm text-gray-400 mb-4">카드 QR을 스캔하면 자동 매핑됩니다</div>
-          <input type="text" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder="카드 QR 스캔 대기..." autoFocus/>
-          <button className="px-6 py-2 bg-gray-200 rounded-lg text-sm font-medium" onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 없이)')}}>건너뛰기</button>
+          <div className="text-lg font-semibold text-blue-600 mb-2">
+            {isLastDay&&session==='PM'?'출입카드를 반납하세요 (수료 처리)':'출입카드를 스캔하세요'}
+          </div>
+          <div className="text-sm text-gray-400 mb-4">
+            {isLastDay&&session==='PM'?'카드 QR 스캔 → 오후 출석 + 카드 반납 + 수료 판단':'카드 QR을 스캔하면 자동 매핑됩니다'}
+          </div>
+          <input type="text" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder={isLastDay&&session==='PM'?'카드 QR 스캔 → 수료 처리':'카드 QR 스캔 대기...'} autoFocus/>
+          {session==='AM'&&<button className="px-6 py-2 bg-gray-200 rounded-lg text-sm font-medium" onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 없이)')}}>건너뛰기</button>}
         </div>
       </div>}
     </div>
@@ -1701,187 +1798,6 @@ function SurveyManager({training,participants,showToast}){
   );
 }
 
-/* ═══════════════════════════════════════════
-   Card Return (일일 카드 반납)
-   ═══════════════════════════════════════════ */
-function CardReturnPage({training,participants,cards,showToast,showScanResult,loadCards,loadParticipants,loadAllForTraining}){
-  const [qrInput,setQr]=useState('');
-  const [processing,setProcessing]=useState(false);
-  const [history,setHistory]=useState([]); // 오늘 반납 이력
-  const [graduationResult,setGraduationResult]=useState(null); // 수료 결과 모달
-  const inputRef=useRef();
-  const scanTimerRef=useRef(null);
-
-  useFocusLock(inputRef,!graduationResult);
-
-  const processReturn=async(code)=>{
-    if(!code||processing)return;
-    setProcessing(true);
-    try{
-      const res=await apiPost({action:'returnCard',cardId:code});
-      if(res.status==='ok'){
-        const d=res.data||res;
-        const pName=d.참가자이름||d.이름||'';
-        const pCompany=d.회사||'';
-
-        // 반납 이력 추가
-        setHistory(prev=>[{name:pName,company:pCompany,cardQR:code,time:new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}),graduation:d.수료||null},...prev]);
-
-        // 수료 결과 확인
-        if(d.수료&&d.수료.isLastDay){
-          if(d.수료.수료처리됨){
-            showScanResult('success','🎓',pName,'수료 완료! 카드 반납됨');
-            setGraduationResult({name:pName,company:pCompany,...d.수료,type:'graduated'});
-          }else{
-            showScanResult('error','⚠️',pName,'카드 반납 완료 — 수료 조건 미충족');
-            setGraduationResult({name:pName,company:pCompany,...d.수료,type:'not-qualified'});
-          }
-        }else{
-          showScanResult('success','✅',pName,'카드 반납 완료');
-        }
-
-        await loadCards();
-      }else{
-        showScanResult('error','❌','반납 실패',res.message||'오늘 매핑된 카드가 아닙니다');
-      }
-    }catch(e){
-      showScanResult('error','❌','네트워크 오류','서버 연결 실패');
-    }finally{
-      setProcessing(false);
-      setQr('');
-    }
-  };
-
-  const returnedToday=history.length;
-  const totalParticipants=participants.length;
-
-  return(
-    <div>
-      <h1 className="text-2xl font-bold mb-5">💳 카드 반납 (퇴실)</h1>
-      <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 mb-4 text-sm">
-        💡 <strong>운영 안내:</strong> 퇴실 시 출입카드 QR만 스캔하면 자동으로 반납 처리됩니다.<br/>
-        최종일에는 수료 조건(출석률 80%↑ + 설문 완료)을 자동 확인하여 수료 처리합니다.
-      </div>
-
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        <StatCard title="총 인원" value={totalParticipants} icon="👥"/>
-        <StatCard title="오늘 반납" value={returnedToday} icon="↩️" color="green"/>
-        <StatCard title="회수율" value={totalParticipants?Math.round(returnedToday/totalParticipants*100)+'%':'0%'} icon="📊" color="blue"/>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4">
-        {/* 스캔 영역 */}
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <div className="text-center">
-            <div className="text-5xl mb-3">🪪</div>
-            <h3 className="text-lg font-bold mb-4">출입카드 QR 스캔</h3>
-            <input
-              ref={inputRef}
-              type="text"
-              className="scanner-input w-full px-4 py-4 border rounded-lg text-center text-lg"
-              value={qrInput}
-              onChange={e=>{
-                const v=e.target.value;
-                setQr(v);
-                if(scanTimerRef.current)clearTimeout(scanTimerRef.current);
-                const trimmed=v.trim();
-                if(trimmed.length>=5){
-                  scanTimerRef.current=setTimeout(()=>{
-                    if(!processing){processReturn(trimmed);setQr('')}
-                  },400);
-                }
-              }}
-              onKeyDown={e=>{
-                if(e.key==='Enter'){
-                  e.preventDefault();
-                  const v=qrInput.trim();
-                  if(v&&!processing){
-                    if(scanTimerRef.current)clearTimeout(scanTimerRef.current);
-                    processReturn(v);
-                    setQr('');
-                  }
-                }
-              }}
-              placeholder="카드 QR 스캔 대기..."
-              autoFocus
-            />
-            {processing&&<div className="mt-4 flex items-center justify-center gap-2"><Spinner/> 처리 중...</div>}
-          </div>
-        </div>
-
-        {/* 반납 이력 */}
-        <div className="bg-white rounded-xl p-5 shadow-sm">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-sm font-semibold text-gray-500">오늘 반납 이력</h3>
-            <button className="text-xs border px-2 py-1 rounded hover:bg-gray-50" onClick={()=>loadCards().then(()=>showToast('🔄 새로고침'))}>🔄</button>
-          </div>
-          {history.length===0?(
-            <div className="text-center text-gray-400 py-8">
-              <div className="text-3xl mb-2">📋</div>
-              <p>아직 반납된 카드가 없습니다</p>
-            </div>
-          ):(
-            <div className="max-h-96 overflow-y-auto space-y-2">
-              {history.map((h,i)=>(
-                <div key={i} className={`p-3 rounded-lg border ${h.graduation&&h.graduation.수료처리됨?'bg-green-50 border-green-300':h.graduation&&!h.graduation.수료가능?'bg-yellow-50 border-yellow-300':'bg-gray-50'}`}>
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <div className="font-semibold">{h.name}</div>
-                      <div className="text-xs text-gray-500">{h.company}</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-xs text-gray-400">{h.time}</div>
-                      {h.graduation&&h.graduation.수료처리됨&&<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">🎓 수료</span>}
-                      {h.graduation&&!h.graduation.수료가능&&<span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full">⚠️ 미수료</span>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* 수료 결과 모달 */}
-      {graduationResult&&(
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={()=>setGraduationResult(null)}>
-          <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 text-center" onClick={e=>e.stopPropagation()}>
-            {graduationResult.type==='graduated'?(
-              <>
-                <div className="text-6xl mb-3">🎓</div>
-                <div className="text-2xl font-bold text-green-700 mb-1">수료 완료!</div>
-                <div className="text-lg font-semibold">{graduationResult.name}</div>
-                <div className="text-sm text-gray-500 mb-4">{graduationResult.company}</div>
-                <div className="bg-green-50 p-4 rounded-xl text-sm text-left space-y-1">
-                  <div>✅ 출석: {graduationResult.출석건수}/{graduationResult.총세션} ({graduationResult.출석률}%)</div>
-                  <div>✅ 설문: 완료</div>
-                </div>
-              </>
-            ):(
-              <>
-                <div className="text-6xl mb-3">⚠️</div>
-                <div className="text-2xl font-bold text-yellow-700 mb-1">수료 조건 미충족</div>
-                <div className="text-lg font-semibold">{graduationResult.name}</div>
-                <div className="text-sm text-gray-500 mb-4">{graduationResult.company}</div>
-                <div className="bg-yellow-50 p-4 rounded-xl text-sm text-left space-y-1">
-                  <div>출석: {graduationResult.출석건수}/{graduationResult.총세션} ({graduationResult.출석률}%)</div>
-                  <div>설문: {graduationResult.설문완료?'완료':'미완료'}</div>
-                  {graduationResult.미충족사유&&graduationResult.미충족사유.length>0&&(
-                    <div className="mt-2 text-red-600 font-semibold">
-                      미충족 사유:<br/>
-                      {graduationResult.미충족사유.map((r,i)=><div key={i}>• {r}</div>)}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-            <button className="mt-6 px-8 py-3 bg-blue-600 text-white rounded-xl font-semibold" onClick={()=>{setGraduationResult(null);loadParticipants(training.id)}}>확인</button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
 </script>
