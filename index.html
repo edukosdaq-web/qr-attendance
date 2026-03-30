@@ -1043,18 +1043,15 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     // AM 로직: 카드 매핑 여부 확인 — 매핑 안 된 참가자면 카드 스캔 유도
     const hasCard=cards.some(c=>c.participantId===target.id&&c.status==='mapped');
     if(!hasCard){
-      showScanResult('success','✅',target.name,`출석 완료 — 3초 후 카드 스캔`);
-      setTimeout(()=>{setCardMappingTarget(target);setQr('')},1500);
+      setCardMappingTarget(target);setQr('');
     }else{
       showScanResult('success','✅',target.name,`${day}일차 오전 출석`);
     }
 
-    // 백그라운드 서버 저장
+    // 백그라운드 서버 저장 (낙관적 UI 이미 반영됨, 재조회 안 함)
     try{
       const res=await apiPost({action:'scan',qrCode:target.qrCode,day,session,method});
-      if(res.status==='ok'){
-        loadAttendance(training.id,day);
-      }else{
+      if(res.status!=='ok'){
         setAttendance(prev=>prev.filter(a=>a.id!==optimisticAtt.id));
         showScanResult('error','❌',target.name,res.error||res.message||'서버 저장 실패');
         setCardMappingTarget(null);
@@ -1086,7 +1083,6 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
           }else{
             showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
           }
-          await Promise.all([loadAttendance(training.id,day),loadCards()]);
           showToast(`💳 ${target.name} 카드 반납 완료`);
         }else{
           showScanResult('error','❌',target.name,res.message||'처리 실패');
@@ -1101,7 +1097,6 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       setCards(prev=>[...prev,optimisticCard]);
       try{
         await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id,day:day,session:'AM'});
-        loadCards();
         showToast(`🔗 ${target.name} ← ${cardCode} 매핑 완료`);
       }catch(e){
         setCards(prev=>prev.filter(c=>c.id!==optimisticCard.id));
@@ -1112,23 +1107,36 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
 
   const isLastDay=day===training.days;
 
-  // PM 비마지막날: 카드 QR로 직접 반납+PM출석
+  // PM 비마지막날: 카드 QR로 직접 반납+PM출석 (낙관적 UI)
   const processCardReturnPM=async(cardCode)=>{
-    setScanning(true);
+    // 즉시 매핑된 참가자 찾아서 낙관적 표시
+    const card=cards.find(c=>(c.qrCode===cardCode||c.qrCode?.toUpperCase()===cardCode.toUpperCase())&&c.status==='mapped');
+    const pName=card?participants.find(p=>p.id===card.participantId)?.name:'';
+    if(pName){
+      showScanResult('success','✅',pName,`오후 출석 + 카드 반납`);
+      showToast(`💳 ${pName} 반납 완료`);
+      // 낙관적 카드 상태 갱신
+      setCards(prev=>prev.map(c=>c.id===card.id?{...c,status:'returned'}:c));
+      // 낙관적 출석 추가
+      const optAtt={id:'opt_'+Date.now(),participantId:card.participantId,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+      setAttendance(prev=>[...prev,optAtt]);
+    }
+    setQr('');
+    // 백그라운드 API
     try{
       const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
       if(res.status==='ok'){
-        const d=res.data||res;
-        const pName=d.참가자이름||'';
-        showScanResult('success','✅',pName,`${day}일차 오후 출석 + 카드 반납 완료`);
-        await Promise.all([loadAttendance(training.id,day),loadCards()]);
-        showToast(`💳 ${pName} 카드 반납 완료`);
+        if(!pName){
+          const d=res.data||res;
+          showScanResult('success','✅',d.참가자이름||'',`오후 출석 + 카드 반납 완료`);
+        }
       }else{
         showScanResult('error','❌','처리 실패',res.message||'카드 반납 실패');
+        if(card)setCards(prev=>prev.map(c=>c.id===card.id?{...c,status:'mapped'}:c));
       }
     }catch(e){
       showScanResult('error','❌','네트워크 오류','서버 연결 실패');
-    }finally{setScanning(false);setQr('')}
+    }
   };
 
   const processQR=async(rawCode)=>{
@@ -1167,8 +1175,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       if(target){
         const existing=attendanceRecords.find(a=>a.participantId===target.id&&a.day===day&&a.session==='PM');
         if(existing){showScanResult('duplicate','⚠️',target.name,'이미 오후 출석 처리됨');setQr('');return}
-        showScanResult('success','✅',target.name,'카드를 반납해주세요');
-        setTimeout(()=>{setCardMappingTarget(target);setQr('')},1500);
+        setCardMappingTarget(target);setQr('');
         return;
       }
       // 카드 QR이 먼저 스캔된 경우
