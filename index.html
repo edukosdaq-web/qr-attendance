@@ -428,6 +428,8 @@ function Login({onLogin}){
 function Dashboard({trainings,participants,cards,attendance,getStats,selectTraining,showToast,loadTrainings}){
   const [showCreate,setShowCreate]=useState(false);
   const [creating,setCreating]=useState(false);
+  const [editTarget,setEditTarget]=useState(null);
+  const [editing,setEditing]=useState(false);
   const globalTotal=participants.length;
   const globalCert=participants.filter(p=>p.certificateIssued).length;
 
@@ -456,6 +458,48 @@ function Dashboard({trainings,participants,cards,attendance,getStats,selectTrain
     }finally{setCreating(false)}
   };
 
+  const updateTraining=async(form)=>{
+    setEditing(true);
+    try{
+      const res=await apiPost({
+        action:'updateTraining',
+        id:form.id,
+        연수명:form.name,
+        시작일:form.startDate,
+        종료일:form.endDate,
+        일수:form.days,
+        상태:form.status,
+        오전시작:form.amStart||'09:00',
+        오후시작:form.pmStart||'13:00',
+        지각기준:form.lateMinutes||10,
+      });
+      if(res.status==='ok'){
+        showToast(`✅ "${form.name}" 연수 수정 완료`);
+        setEditTarget(null);
+        await loadTrainings();
+      }else{
+        showToast(`❌ ${res.message||'수정 실패'}`,'err');
+      }
+    }catch(e){
+      showToast('❌ 연수 수정 실패 (네트워크 오류)','err');
+    }finally{setEditing(false)}
+  };
+
+  const deleteTraining=async(t)=>{
+    if(!confirm(`'${t.name}' 연수를 삭제하시겠습니까?\n관련된 참가자, 출석, 카드 데이터가 모두 삭제됩니다.`))return;
+    try{
+      const res=await apiPost({action:'deleteTraining',id:t.id});
+      if(res.status==='ok'){
+        showToast(`🗑️ "${t.name}" 연수 삭제 완료`);
+        await loadTrainings();
+      }else{
+        showToast(`❌ ${res.message||'삭제 실패'}`,'err');
+      }
+    }catch(e){
+      showToast('❌ 연수 삭제 실패 (네트워크 오류)','err');
+    }
+  };
+
   const [searchQ,setSearchQ]=useState('');
   const [statusFilter,setStatusFilter]=useState('all');
   const activeTrainings=trainings.filter(t=>t.status==='active');
@@ -477,7 +521,13 @@ function Dashboard({trainings,participants,cards,attendance,getStats,selectTrain
             <div key={t.id} className="bg-green-50 border-2 border-green-400 rounded-xl p-4 cursor-pointer hover:-translate-y-0.5 transition-all" onClick={()=>selectTraining(t.id)}>
               <div className="flex justify-between items-center">
                 <div><div className="font-bold text-lg">{t.name}</div><div className="text-xs text-gray-500">{t.startDate} ~ {t.endDate} · {t.days}일</div></div>
-                <div className="text-right"><div className="text-2xl font-bold text-green-700">{s.total}명</div><div className="text-xs text-gray-500">참가자</div></div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right"><div className="text-2xl font-bold text-green-700">{s.total}명</div><div className="text-xs text-gray-500">참가자</div></div>
+                  <div className="flex flex-col gap-1 ml-2">
+                    <button className="px-2 py-0.5 text-xs bg-white border rounded hover:bg-gray-100" onClick={e=>{e.stopPropagation();setEditTarget(t)}}>✏️ 수정</button>
+                    <button className="px-2 py-0.5 text-xs bg-white border border-red-300 text-red-600 rounded hover:bg-red-50" onClick={e=>{e.stopPropagation();deleteTraining(t)}}>🗑️ 삭제</button>
+                  </div>
+                </div>
               </div>
             </div>
           )})}
@@ -491,7 +541,13 @@ function Dashboard({trainings,participants,cards,attendance,getStats,selectTrain
             <div key={t.id} className="bg-yellow-50 border-2 border-yellow-300 rounded-xl p-4 cursor-pointer hover:-translate-y-0.5 transition-all" onClick={()=>selectTraining(t.id)}>
               <div className="flex justify-between items-center">
                 <div><div className="font-bold">{t.name}</div><div className="text-xs text-gray-500">{t.startDate} ~ {t.endDate}</div></div>
-                <div className="text-right"><div className="text-lg font-bold text-yellow-700">{s.total}명</div></div>
+                <div className="flex items-center gap-2">
+                  <div className="text-right"><div className="text-lg font-bold text-yellow-700">{s.total}명</div></div>
+                  <div className="flex flex-col gap-1 ml-2">
+                    <button className="px-2 py-0.5 text-xs bg-white border rounded hover:bg-gray-100" onClick={e=>{e.stopPropagation();setEditTarget(t)}}>✏️ 수정</button>
+                    <button className="px-2 py-0.5 text-xs bg-white border border-red-300 text-red-600 rounded hover:bg-red-50" onClick={e=>{e.stopPropagation();deleteTraining(t)}}>🗑️ 삭제</button>
+                  </div>
+                </div>
               </div>
             </div>
           )})}
@@ -523,7 +579,11 @@ function Dashboard({trainings,participants,cards,attendance,getStats,selectTrain
                   <div className="font-bold">{t.name}</div>
                   <div className="text-xs text-gray-500 mt-1">{t.startDate} ~ {t.endDate} · {t.days}일</div>
                 </div>
-                <span className={`text-xs px-2 py-1 rounded-full font-semibold ${t.status==='active'?'bg-green-100 text-green-800':t.status==='preparing'?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-600'}`}>{t.status==='active'?'진행중':t.status==='preparing'?'준비중':'완료'}</span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-1 rounded-full font-semibold ${t.status==='active'?'bg-green-100 text-green-800':t.status==='preparing'?'bg-yellow-100 text-yellow-800':'bg-gray-100 text-gray-600'}`}>{t.status==='active'?'진행중':t.status==='preparing'?'준비중':'완료'}</span>
+                  <button className="px-1.5 py-0.5 text-xs border rounded hover:bg-gray-100" onClick={e=>{e.stopPropagation();setEditTarget(t)}} title="수정">✏️</button>
+                  <button className="px-1.5 py-0.5 text-xs border border-red-300 text-red-600 rounded hover:bg-red-50" onClick={e=>{e.stopPropagation();deleteTraining(t)}} title="삭제">🗑️</button>
+                </div>
               </div>
               <div className="text-sm text-gray-600">👥 참가자 <strong>{s.total}명</strong></div>
             </div>
@@ -531,6 +591,52 @@ function Dashboard({trainings,participants,cards,attendance,getStats,selectTrain
         })}
       </div>
       {showCreate&&<CreateModal onClose={()=>setShowCreate(false)} onCreate={createTraining} creating={creating}/>}
+      {editTarget&&<EditTrainingModal training={editTarget} onClose={()=>setEditTarget(null)} onSave={updateTraining} saving={editing}/>}
+    </div>
+  );
+}
+
+function EditTrainingModal({training,onClose,onSave,saving}){
+  const statusMap={'active':'진행중','preparing':'준비중','completed':'완료'};
+  const statusReverseMap={'준비중':'preparing','진행중':'active','완료':'completed'};
+  const [name,setName]=useState(training.name||'');
+  const [startDate,setStartDate]=useState(training.startDate?training.startDate.replace(/\//g,'-'):'');
+  const [endDate,setEndDate]=useState(training.endDate?training.endDate.replace(/\//g,'-'):'');
+  const [days,setDays]=useState(training.days||1);
+  const [status,setStatus]=useState(statusMap[training.status]||'준비중');
+  const [amStart,setAmStart]=useState('09:00');
+  const [pmStart,setPmStart]=useState('13:00');
+  const [lateMinutes,setLateMinutes]=useState(10);
+
+  return(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl p-8 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={e=>e.stopPropagation()}>
+        <h2 className="text-lg font-bold mb-5">✏️ 연수 수정</h2>
+        <div className="mb-4"><label className="text-sm font-semibold block mb-1">연수명 *</label><input className="w-full px-3 py-2 border rounded-lg" value={name} onChange={e=>setName(e.target.value)}/></div>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div><label className="text-sm font-semibold block mb-1">시작일</label><input type="date" className="w-full px-3 py-2 border rounded-lg" value={startDate} onChange={e=>setStartDate(e.target.value)}/></div>
+          <div><label className="text-sm font-semibold block mb-1">종료일</label><input type="date" className="w-full px-3 py-2 border rounded-lg" value={endDate} onChange={e=>setEndDate(e.target.value)}/></div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div><label className="text-sm font-semibold block mb-1">일수</label><input type="number" min="1" max="30" className="w-full px-3 py-2 border rounded-lg" value={days} onChange={e=>setDays(Number(e.target.value))}/></div>
+          <div><label className="text-sm font-semibold block mb-1">상태</label>
+            <select className="w-full px-3 py-2 border rounded-lg" value={status} onChange={e=>setStatus(e.target.value)}>
+              <option>준비중</option><option>진행중</option><option>완료</option>
+            </select>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div><label className="text-sm font-semibold block mb-1">오전 시작</label><input type="time" className="w-full px-3 py-2 border rounded-lg" value={amStart} onChange={e=>setAmStart(e.target.value)}/></div>
+          <div><label className="text-sm font-semibold block mb-1">오후 시작</label><input type="time" className="w-full px-3 py-2 border rounded-lg" value={pmStart} onChange={e=>setPmStart(e.target.value)}/></div>
+        </div>
+        <div className="mb-6"><label className="text-sm font-semibold block mb-1">지각 기준 (분)</label><input type="number" min="0" max="120" className="w-full px-3 py-2 border rounded-lg" value={lateMinutes} onChange={e=>setLateMinutes(Number(e.target.value))}/></div>
+        <div className="flex gap-3 justify-end">
+          <button className="px-4 py-2 border rounded-lg text-sm" onClick={onClose}>취소</button>
+          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold text-sm flex items-center gap-2" disabled={!name.trim()||saving} onClick={()=>onSave({id:training.id,name:name.trim(),startDate,endDate,days,status:statusReverseMap[status]||'preparing',amStart,pmStart,lateMinutes})}>
+            {saving?<><Spinner/> 저장 중...</>:'💾 저장'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -739,6 +845,7 @@ function Upload({training,participants,showToast,loadParticipants}){
             const ws=XLSX.utils.json_to_sheet(rows);const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'수신자');
             XLSX.writeFile(wb,`문자발송_${training.name}_${new Date().toISOString().slice(0,10)}.xlsx`);showToast('📱 문자 발송용 엑셀 다운로드 완료');
           }}>📱 문자 발송용 엑셀</button>}
+          <a href="https://www.maillink.co.kr" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-semibold hover:bg-orange-600 inline-flex items-center gap-1">📨 메일링크 바로가기</a>
           {participants.length>0&&<button className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold" onClick={()=>setShowQR(true)}>🔲 QR코드 보기</button>}
           <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={()=>loadParticipants(training.id).then(()=>showToast('🔄 새로고침'))}>🔄</button>
         </div>
