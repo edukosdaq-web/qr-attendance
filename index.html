@@ -198,10 +198,10 @@ function App(){
   const [attendance,setAttendance]=useState([]);
 
   const showToast=useCallback((msg,type='ok')=>{setToast({msg,type});setTimeout(()=>setToast(null),2000)},[]);
-  const showScanResult=useCallback((type,icon,name,detail)=>{
-    setScanResult({type,icon,name,detail});playBeep(type);
+  const showScanResult=useCallback((type,icon,name,detail,duration,btn)=>{
+    setScanResult({type,icon,name,detail,btn});playBeep(type);
     setFlash(type);setTimeout(()=>setFlash(null),500);
-    setTimeout(()=>setScanResult(null),2500);
+    setTimeout(()=>setScanResult(null),btn?8000:(duration||2500));
   },[]);
 
   /* ─── Data Loading ─── */
@@ -378,10 +378,11 @@ function App(){
       </div>
       <main className="flex-1 p-6 overflow-x-auto md:p-6 pt-14 md:pt-6">{pg()}</main>
       {toast&&<div className={`fixed bottom-6 right-6 px-6 py-3 rounded-xl text-white font-semibold z-50 ${toast.type==='ok'?'bg-green-600':toast.type==='err'?'bg-red-600':'bg-yellow-600'}`} style={{animation:'popIn .3s'}}>{toast.msg}</div>}
-      {scanResult&&<div className={`scan-result-big ${scanResult.type}`}>
+      {scanResult&&<div className={`scan-result-big ${scanResult.type}`} onClick={()=>{if(!scanResult.btn)setScanResult(null)}}>
         <div className="text-6xl mb-2">{scanResult.icon}</div>
         <div className="text-3xl font-extrabold">{scanResult.name}</div>
         <div className="text-lg mt-1 font-medium">{scanResult.detail}</div>
+        {scanResult.btn&&<button className="mt-4 px-6 py-3 bg-yellow-500 text-white rounded-xl text-lg font-bold shadow-lg hover:bg-yellow-600" onClick={e=>{e.stopPropagation();setScanResult(null);scanResult.btn.action()}}>{scanResult.btn.label}</button>}
       </div>}
     </div>
   );
@@ -1064,7 +1065,20 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setQr('');
     
     if(session==='PM'&&isLastDay){
-      // 마지막날 PM: 카드 매칭 확인 후 수료 판단
+      // 마지막날 PM: 설문 확인 → 카드 매칭 확인 → 수료 판단
+      const pData=participants.find(p=>p.id===target.id);
+      if(!pData?.surveyCompleted){
+        showScanResult('error','📋',target.name,'설문조사를 먼저 완료해주세요',null,{label:'담당자 확인 후 반납 처리',action:()=>{
+          // 설문 수동 완료 처리 후 카드 반납 재시도
+          apiPost({action:'markSurvey',participantId:target.id,completed:true}).then(()=>{
+            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,surveyCompleted:true}:p));
+            showToast('📋 설문 수동 완료 처리');
+            setCardMappingTarget(target);
+          });
+        }});
+        setCardMappingTarget(null);
+        return;
+      }
       const mappedCard=cards.find(c=>c.participantId===target.id&&c.status==='mapped');
       if(!mappedCard||mappedCard.qrCode.toUpperCase()!==cardCode.toUpperCase()){
         showScanResult('error','❌',target.name,mappedCard?`이 카드가 아닙니다. ${mappedCard.qrCode.replace('KOSDAQ-C-','C-')} 카드를 대주세요`:'매핑된 카드가 없습니다');
