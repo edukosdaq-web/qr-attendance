@@ -1040,13 +1040,9 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setAttendance(prev=>[...prev,optimisticAtt]);
     setQr('');
 
-    // AM 로직: 카드 매핑 여부 확인 — 매핑 안 된 참가자면 카드 스캔 유도
-    const hasCard=cards.some(c=>c.participantId===target.id&&c.status==='mapped');
-    if(!hasCard){
-      setCardMappingTarget(target);setQr('');
-    }else{
-      showScanResult('success','✅',target.name,`${day}일차 오전 출석`);
-    }
+    // AM: 출석 완료 표시 후 카드 스캔 유도 (매일 새로 매핑)
+    showScanResult('success','✅',target.name,`${day}일차 오전 출석 ✓ 카드를 대주세요`);
+    setTimeout(()=>{setCardMappingTarget(target);setQr('')},1000);
 
     // 백그라운드 서버 저장 (낙관적 UI 이미 반영됨, 재조회 안 함)
     try{
