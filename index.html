@@ -1021,7 +1021,7 @@ function ManualSearch({participants,onSelect,onClose,title}){
 /* ═══════════════════════════════════════════
    Attendance
    ═══════════════════════════════════════════ */
-function AttendancePage({training,participants,attendanceRecords,showToast,showScanResult,cards,loadAttendance,setAttendance,setCards,loadCards}){
+function AttendancePage({training,participants,attendanceRecords,showToast,showScanResult,cards,loadAttendance,setAttendance,setCards,setParticipants,loadCards}){
   const [day,setDay]=useState(1);
   const [session,setSess]=useState('AM');
   const [qrInput,setQr]=useState('');
