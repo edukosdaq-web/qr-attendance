@@ -1093,30 +1093,43 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
       }
       showToast(`💳 ${target.name} 카드 반납 완료`);
-      // 백그라운드 서버 호출 (UI 업데이트 안 함, 서버 기록용)
-      apiPost({action:'returnCard',cardId:cardCode,day:day}).then(res=>{
-        if(res.status==='ok'){
-          const d=res.data||{};
-          const graduated=d.수료?.수료처리됨||d.graduated;
-          if(graduated){
-            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true,surveyCompleted:true}:p));
-          }else if(d.수료?.미충족사유){
-            const reasons=Array.isArray(d.수료.미충족사유)?d.수료.미충족사유.join(', '):String(d.수료.미충족사유);
-            showScanResult('warning','⚠️',target.name,'수료 미충족: '+reasons,0,{
-              label:'담당자 확인 후 수료 처리',
-              action:async()=>{
-                try{
-                  // 강제 수료: markSurvey + forceGraduate
-                  await apiPost({action:'markSurvey',participantId:target.id,completed:true});
-                  await apiPost({action:'forceGraduate',participantId:target.id});
-                  setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true,surveyCompleted:true}:p));
-                  showScanResult('success','🎓',target.name,'🎓 수료 처리 완료! 수고하셨습니다!');
-                }catch(ex){showScanResult('error','❌',target.name,'수료 처리 오류: '+ex.message)}
-              }
-            });
+      // 서버 호출 (재시도 포함)
+      const doReturn=async(retry=0)=>{
+        try{
+          const res=await apiPost({action:'returnCard',cardId:cardCode,day:String(day)});
+          console.log('[returnCard] 응답:',JSON.stringify(res));
+          if(res.status==='ok'){
+            const d=res.data||{};
+            const graduated=d.수료?.수료처리됨||d.graduated;
+            if(graduated){
+              setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true,surveyCompleted:true}:p));
+              showToast(`🎓 ${target.name} 수료 확정!`);
+            }else if(d.수료?.미충족사유){
+              const reasons=Array.isArray(d.수료.미충족사유)?d.수료.미충족사유.join(', '):String(d.수료.미충족사유);
+              showScanResult('warning','⚠️',target.name,'수료 미충족: '+reasons,0,{
+                label:'담당자 확인 후 수료 처리',
+                action:async()=>{
+                  try{
+                    await apiPost({action:'markSurvey',participantId:target.id,completed:'true'});
+                    await apiPost({action:'forceGraduate',participantId:target.id});
+                    setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true,surveyCompleted:true}:p));
+                    showScanResult('success','🎓',target.name,'🎓 수료 처리 완료! 수고하셨습니다!');
+                  }catch(ex){showScanResult('error','❌',target.name,'수료 처리 오류: '+ex.message)}
+                }
+              });
+            }
+          }else{
+            console.error('[returnCard] 서버 에러:',res.message);
+            if(retry<2){console.log('[returnCard] 재시도',retry+1);setTimeout(()=>doReturn(retry+1),2000)}
+            else showToast(`⚠️ ${target.name} 서버 저장 실패: ${res.message}`);
           }
+        }catch(e){
+          console.error('[returnCard] 네트워크 에러:',e);
+          if(retry<2){console.log('[returnCard] 재시도',retry+1);setTimeout(()=>doReturn(retry+1),2000)}
+          else showToast(`⚠️ ${target.name} 서버 연결 실패 — 새로고침 후 재시도`);
         }
-      }).catch(()=>{});
+      };
+      doReturn();
     }else{
       // AM: 카드 매핑 (기존 로직)
       setCardMappingTarget(null);
@@ -1275,7 +1288,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
 
   const present=attendanceRecords.filter(a=>a.day===day&&a.session===session);
 
-  // Load attendance when day changes
+  // Load attendance on mount + when day changes
+  useEffect(()=>{loadAttendance(training.id);loadCards()},[]);
   useEffect(()=>{loadAttendance(training.id,day)},[day]);
 
   return(
