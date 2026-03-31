@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>코스닥협회 QR 출석 시스템 v5</title>
@@ -356,7 +359,7 @@ function App(){
       <div className="sidebar-wrap w-64 bg-gray-900 text-white flex-shrink-0 flex flex-col" style={{minHeight:'100vh'}}>
         <div className="p-5 border-b border-gray-700">
           <div className="font-bold text-sm">🏢 KOSDAQ 연수</div>
-          <div className="text-xs text-gray-500 mt-1">QR 출석 관리 시스템 v5.0</div>
+          <div className="text-xs text-gray-500 mt-1">QR 출석 관리 시스템 v5.3</div>
         </div>
         {selTraining?(
           <>
@@ -419,7 +422,7 @@ function Login({onLogin}){
         <div className="text-center mb-8">
           <div className="text-4xl mb-2">🏢</div>
           <h1 className="text-xl font-bold">코스닥협회 QR 출석시스템</h1>
-          <p className="text-sm text-gray-500 mt-1">v5.0 — 관리자 로그인</p>
+          <p className="text-sm text-gray-500 mt-1">v5.3 — 관리자 로그인</p>
         </div>
         <input type="password" className="w-full px-4 py-3 border rounded-lg text-lg mb-3" placeholder="비밀번호" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')handleLogin()}} autoFocus disabled={loading}/>
         {err&&<p className="text-red-600 text-sm mb-2 font-semibold">❌ 비밀번호가 틀렸습니다</p>}
