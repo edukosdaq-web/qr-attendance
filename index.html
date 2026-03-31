@@ -1108,35 +1108,30 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         setCardMappingTarget(null);
         return;
       }
-      const mappedCard=cards.find(c=>c.participantId===target.id&&c.status==='mapped');
-      if(!mappedCard||mappedCard.qrCode.toUpperCase()!==cardCode.toUpperCase()){
-        showScanResult('error','❌',target.name,mappedCard?`이 카드가 아닙니다. ${mappedCard.qrCode.replace('KOSDAQ-C-','C-')} 카드를 대주세요`:'매핑된 카드가 없습니다');
-        setCardMappingTarget(target);
-        return;
-      }
-      // 1) 낙관적 PM 출석 추가
-      const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
-      setAttendance(prev=>[...prev,optAtt]);
-      // 2) 낙관적 카드 반납
-      setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
-      // 3) 즉시 수료 판단 (로컬 데이터)
-      const allAtt=[...attendanceRecords,optAtt].filter(a=>a.participantId===target.id&&a.trainingId===training.id);
-      const totalSessions=training.days*2;
-      const attRate=totalSessions>0?Math.round(allAtt.length/totalSessions*100):0;
-      const surveyDone=participants.find(p=>p.id===target.id)?.surveyCompleted;
-      const canGraduate=attRate>=80&&surveyDone;
+      // 서버에서 직접 카드 반납 + 출석 + 수료 처리
       setCardMappingTarget(null);
-      if(canGraduate){
-        showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
-      }else{
-        const reasons=[];
-        if(attRate<80)reasons.push(`출석률 ${attRate}%`);
-        if(!surveyDone)reasons.push('설문 미완료');
-        showScanResult('error','⚠️',target.name,'수료 조건 미충족: '+reasons.join(', '));
+      showScanResult('info','⏳',target.name,'카드 반납 처리 중...');
+      try{
+        const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
+        if(res.status==='ok'){
+          const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+          setAttendance(prev=>[...prev,optAtt]);
+          setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
+          if(res.graduated){
+            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true}:p));
+            showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
+          }else{
+            showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
+          }
+          showToast(`💳 ${target.name} 카드 반납 완료`);
+        }else{
+          showScanResult('error','❌',target.name,res.message||'카드 반납 실패');
+          setCardMappingTarget(target);
+        }
+      }catch(e){
+        showScanResult('error','❌',target.name,'서버 오류: '+(e.message||'연결 실패'));
+        setCardMappingTarget(target);
       }
-      showToast(`💳 ${target.name} 카드 반납 완료`);
-      // 4) 백그라운드 API
-      apiPost({action:'returnCard',cardId:cardCode,day:day}).catch(()=>{});
     }else{
       // AM: 카드 매핑 (기존 로직)
       setCardMappingTarget(null);
