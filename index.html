@@ -1062,7 +1062,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   const processCardMapping=async(cardCode)=>{
     if(!cardMappingTarget)return;
     const target=cardMappingTarget;
-    setCardMappingTarget(null);
+    // target 초기화를 성공 시점까지 지연 (잘못된 카드 스캔 시 재시도 가능하도록)
     setQr('');
     
     if(session==='PM'&&isLastDay){
@@ -1125,6 +1125,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       const attRate=totalSessions>0?Math.round(allAtt.length/totalSessions*100):0;
       const surveyDone=participants.find(p=>p.id===target.id)?.surveyCompleted;
       const canGraduate=attRate>=80&&surveyDone;
+      setCardMappingTarget(null);
       if(canGraduate){
         showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
       }else{
@@ -1138,6 +1139,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       apiPost({action:'returnCard',cardId:cardCode,day:day}).catch(()=>{});
     }else{
       // AM: 카드 매핑 (기존 로직)
+      setCardMappingTarget(null);
       showScanResult('success','✅',target.name,'출석 완료 + 카드 매핑');
       const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString()};
       setCards(prev=>[...prev,optimisticCard]);
