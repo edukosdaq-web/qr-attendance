@@ -1066,61 +1066,23 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setQr('');
     
     if(session==='PM'&&isLastDay){
-      // 마지막날 PM: 서버에서 최신 설문 상태 확인 → 카드 매칭 확인 → 수료 판단
-      let pData=participants.find(p=>p.id===target.id);
-      try{
-        const freshRes=await apiGet('getParticipants',{tid:training.id});
-        const freshP=freshRes?.data||freshRes||[];
-        const freshOne=Array.isArray(freshP)?freshP.find(p=>p.id===target.id):null;
-        if(freshOne){
-          const surveyOk=freshOne.설문완료==='Y'||freshOne.설문완료===true;
-          if(surveyOk&&!pData?.surveyCompleted){
-            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,surveyCompleted:true}:p));
-            pData={...pData,surveyCompleted:true};
-          }
-        }
-      }catch(e){}
-      if(!pData?.surveyCompleted){
-        const savedCardCode=cardCode;
-        const savedDay=day;
-        showScanResult('error','📋',target.name,'설문조사를 먼저 완료해주세요',null,{label:'담당자 확인 후 반납 처리',action:async()=>{
-          try{
-            // 1) 설문 수동 완료
-            await apiPost({action:'markSurvey',participantId:target.id,completed:true});
-            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,surveyCompleted:true}:p));
-            showToast('📋 설문 수동 완료 처리');
-            // 2) 서버에 카드 반납 + 출석 처리
-            const res=await apiPost({action:'returnCard',cardId:savedCardCode,day:savedDay});
-            // 3) 낙관적 UI 업데이트
-            const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day:savedDay,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
-            setAttendance(prev=>[...prev,optAtt]);
-            setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
-            // 4) 수료 판단
-            if(res?.graduated){
-              showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
-            }else{
-              showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
-            }
-            showToast(`💳 ${target.name} 카드 반납 완료`);
-          }catch(e){
-            showScanResult('error','❌',target.name,'처리 실패: '+(e.message||'오류'));
-          }
-        }});
-        setCardMappingTarget(null);
-        return;
-      }
-      // 서버에서 직접 카드 반납 + 출석 + 수료 처리
+      // 마지막날 PM: 설문 확인 없이 서버에서 모든 것을 처리
+      // 서버의 returnCard가 설문확인 + 출석 + 반납 + 수료 판단 모두 수행
       setCardMappingTarget(null);
-      showScanResult('info','⏳',target.name,'카드 반납 처리 중...');
+      showScanResult('info','⏳',target.name,'카드 반납 + 수료 처리 중...');
       try{
         const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
         if(res.status==='ok'){
+          const d=res.data||{};
           const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
           setAttendance(prev=>[...prev,optAtt]);
           setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
-          if(res.graduated){
-            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true}:p));
+          const graduated=d.수료?.수료처리됨||d.graduated;
+          if(graduated){
+            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true,surveyCompleted:true}:p));
             showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
+          }else if(d.수료?.미충족사유){
+            showScanResult('error','⚠️',target.name,'수료 미충족: '+d.수료.미충족사유);
           }else{
             showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
           }
