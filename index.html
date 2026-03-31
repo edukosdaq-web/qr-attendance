@@ -1064,6 +1064,12 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   // 카드 처리: AM→매핑, PM 마지막날→반납+수료
   const processCardMapping=async(cardCode)=>{
     if(!cardMappingTarget)return;
+    // 카드 QR 검증: KOSDAQ-C- 접두사 필수
+    if(!cardCode.startsWith('KOSDAQ-C-')){
+      showScanResult('error','⚠️','잘못된 QR','출입카드 QR을 스캔하세요 (참가자 QR이 아닌 카드 QR)');
+      setQr('');
+      return;
+    }
     const target=cardMappingTarget;
     // target 초기화를 성공 시점까지 지연 (잘못된 카드 스캔 시 재시도 가능하도록)
     setQr('');
