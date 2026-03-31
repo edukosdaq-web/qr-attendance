@@ -1066,8 +1066,19 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setQr('');
     
     if(session==='PM'&&isLastDay){
-      // 마지막날 PM: 설문 확인 → 카드 매칭 확인 → 수료 판단
-      const pData=participants.find(p=>p.id===target.id);
+      // 마지막날 PM: 서버에서 최신 설문 상태 확인 → 카드 매칭 확인 → 수료 판단
+      let pData=participants.find(p=>p.id===target.id);
+      try{
+        const freshP=await apiGet('getParticipants',{tid:training.id});
+        const freshOne=freshP?.find(p=>p.id===target.id);
+        if(freshOne){
+          const surveyOk=freshOne.설문완료==='Y'||freshOne.설문완료===true;
+          if(surveyOk&&!pData?.surveyCompleted){
+            setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,surveyCompleted:true}:p));
+            pData={...pData,surveyCompleted:true};
+          }
+        }
+      }catch(e){}
       if(!pData?.surveyCompleted){
         const savedCardCode=cardCode;
         showScanResult('error','📋',target.name,'설문조사를 먼저 완료해주세요',null,{label:'담당자 확인 후 반납 처리',action:()=>{
