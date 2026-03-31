@@ -201,7 +201,7 @@ function App(){
   const showScanResult=useCallback((type,icon,name,detail,duration,btn)=>{
     setScanResult({type,icon,name,detail,btn});playBeep(type);
     setFlash(type);setTimeout(()=>setFlash(null),500);
-    setTimeout(()=>setScanResult(null),btn?8000:(duration||2500));
+    if(!btn){setTimeout(()=>setScanResult(null),duration||2500)}
   },[]);
 
   /* ─── Data Loading ─── */
@@ -379,6 +379,7 @@ function App(){
       <main className="flex-1 p-6 overflow-x-auto md:p-6 pt-14 md:pt-6">{pg()}</main>
       {toast&&<div className={`fixed bottom-6 right-6 px-6 py-3 rounded-xl text-white font-semibold z-50 ${toast.type==='ok'?'bg-green-600':toast.type==='err'?'bg-red-600':'bg-yellow-600'}`} style={{animation:'popIn .3s'}}>{toast.msg}</div>}
       {scanResult&&<div className={`scan-result-big ${scanResult.type}`} onClick={()=>{if(!scanResult.btn)setScanResult(null)}}>
+        {scanResult.btn&&<button className="absolute top-4 right-4 text-white/60 hover:text-white text-2xl" onClick={e=>{e.stopPropagation();setScanResult(null)}}>✕</button>}
         <div className="text-6xl mb-2">{scanResult.icon}</div>
         <div className="text-3xl font-extrabold">{scanResult.name}</div>
         <div className="text-lg mt-1 font-medium">{scanResult.detail}</div>
@@ -1068,12 +1069,26 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       // 마지막날 PM: 설문 확인 → 카드 매칭 확인 → 수료 판단
       const pData=participants.find(p=>p.id===target.id);
       if(!pData?.surveyCompleted){
+        const savedCardCode=cardCode;
         showScanResult('error','📋',target.name,'설문조사를 먼저 완료해주세요',null,{label:'담당자 확인 후 반납 처리',action:()=>{
-          // 설문 수동 완료 처리 후 카드 반납 재시도
+          // 설문 수동 완료 + 카드 반납 + 출석 + 수료 한 번에 처리
           apiPost({action:'markSurvey',participantId:target.id,completed:true}).then(()=>{
             setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,surveyCompleted:true}:p));
             showToast('📋 설문 수동 완료 처리');
-            setCardMappingTarget(target);
+            // 바로 카드 반납+수료 처리 (카드 재스캔 불필요)
+            const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+            setAttendance(prev=>[...prev,optAtt]);
+            setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
+            const allAtt=[...attendanceRecords,optAtt].filter(a=>a.participantId===target.id&&a.trainingId===training.id);
+            const totalSessions=training.days*2;
+            const attRate=totalSessions>0?Math.round(allAtt.length/totalSessions*100):0;
+            if(attRate>=80){
+              showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
+            }else{
+              showScanResult('error','⚠️',target.name,`수료 조건 미충족: 출석률 ${attRate}%`);
+            }
+            showToast(`💳 ${target.name} 카드 반납 완료`);
+            apiPost({action:'returnCard',cardId:savedCardCode,day:day}).catch(()=>{});
           });
         }});
         setCardMappingTarget(null);
