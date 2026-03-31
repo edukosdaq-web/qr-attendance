@@ -1157,35 +1157,48 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
 
   // PM 비마지막날: 카드 QR로 직접 반납+PM출석 (낙관적 UI)
   const processCardReturnPM=async(cardCode)=>{
-    // 매핑된 카드인지 확인
-    const card=cards.find(c=>(c.qrCode===cardCode||c.qrCode?.toUpperCase()===cardCode.toUpperCase())&&c.status==='mapped');
-    if(!card){
-      showScanResult('error','❌','카드 오류','오늘 매핑된 카드가 아닙니다');
+    // 1) 먼저 카드매핑 데이터에서 오늘 매핑된 카드 확인 (낙관적 포함)
+    const cUp=cardCode.toUpperCase();
+    const mapped=cards.find(c=>(c.qrCode===cardCode||c.qrCode?.toUpperCase()===cUp)&&c.status==='mapped');
+    // 2) 낙관적 cards에 없으면 서버에서 확인
+    if(!mapped){
       setQr('');
+      showScanResult('info','⏳','확인 중','서버에서 카드 매핑 확인 중...');
+      try{
+        const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
+        if(res.status==='ok'){
+          const d=res.data||res;
+          const pName=d.참가자이름||d.name||'';
+          showScanResult('success','✅',pName,`오후 출석 + 카드 반납 완료`);
+          showToast(`💳 ${pName} 반납 완료`);
+          // 출석 낙관적 추가
+          if(d.participantId){
+            const optAtt={id:'opt_'+Date.now(),participantId:d.participantId,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+            setAttendance(prev=>[...prev,optAtt]);
+          }
+          loadCards();
+        }else{
+          showScanResult('error','❌','카드 오류',res.message||'오늘 매핑된 카드가 아닙니다');
+        }
+      }catch(e){
+        showScanResult('error','❌','네트워크 오류','서버 연결 실패');
+      }
       return;
     }
-    const pName=card?participants.find(p=>p.id===card.participantId)?.name:'';
-    if(pName){
-      showScanResult('success','✅',pName,`오후 출석 + 카드 반납`);
-      showToast(`💳 ${pName} 반납 완료`);
-      // 낙관적 카드 상태 갱신
-      setCards(prev=>prev.map(c=>c.id===card.id?{...c,status:'returned'}:c));
-      // 낙관적 출석 추가
-      const optAtt={id:'opt_'+Date.now(),participantId:card.participantId,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
-      setAttendance(prev=>[...prev,optAtt]);
-    }
+    // 로컬에서 찾은 경우: 기존 낙관적 UI
+    const pName=participants.find(p=>p.id===mapped.participantId)?.name||'';
+    showScanResult('success','✅',pName,`오후 출석 + 카드 반납`);
+    showToast(`💳 ${pName} 반납 완료`);
+    setCards(prev=>prev.map(c=>c.id===mapped.id?{...c,status:'returned'}:c));
+    const optAtt={id:'opt_'+Date.now(),participantId:mapped.participantId,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+    setAttendance(prev=>[...prev,optAtt]);
     setQr('');
     // 백그라운드 API
     try{
       const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
-      if(res.status==='ok'){
-        if(!pName){
-          const d=res.data||res;
-          showScanResult('success','✅',d.참가자이름||'',`오후 출석 + 카드 반납 완료`);
-        }
-      }else{
+      if(res.status!=='ok'){
         showScanResult('error','❌','처리 실패',res.message||'카드 반납 실패');
-        if(card)setCards(prev=>prev.map(c=>c.id===card.id?{...c,status:'mapped'}:c));
+        setCards(prev=>prev.map(c=>c.id===mapped.id?{...c,status:'mapped'}:c));
       }
     }catch(e){
       showScanResult('error','❌','네트워크 오류','서버 연결 실패');
