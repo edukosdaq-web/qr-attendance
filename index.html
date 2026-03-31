@@ -1081,26 +1081,29 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       }catch(e){}
       if(!pData?.surveyCompleted){
         const savedCardCode=cardCode;
-        showScanResult('error','📋',target.name,'설문조사를 먼저 완료해주세요',null,{label:'담당자 확인 후 반납 처리',action:()=>{
-          // 설문 수동 완료 + 카드 반납 + 출석 + 수료 한 번에 처리
-          apiPost({action:'markSurvey',participantId:target.id,completed:true}).then(()=>{
+        const savedDay=day;
+        showScanResult('error','📋',target.name,'설문조사를 먼저 완료해주세요',null,{label:'담당자 확인 후 반납 처리',action:async()=>{
+          try{
+            // 1) 설문 수동 완료
+            await apiPost({action:'markSurvey',participantId:target.id,completed:true});
             setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,surveyCompleted:true}:p));
             showToast('📋 설문 수동 완료 처리');
-            // 바로 카드 반납+수료 처리 (카드 재스캔 불필요)
-            const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
+            // 2) 서버에 카드 반납 + 출석 처리
+            const res=await apiPost({action:'returnCard',cardId:savedCardCode,day:savedDay});
+            // 3) 낙관적 UI 업데이트
+            const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day:savedDay,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
             setAttendance(prev=>[...prev,optAtt]);
             setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
-            const allAtt=[...attendanceRecords,optAtt].filter(a=>a.participantId===target.id&&a.trainingId===training.id);
-            const totalSessions=training.days*2;
-            const attRate=totalSessions>0?Math.round(allAtt.length/totalSessions*100):0;
-            if(attRate>=80){
+            // 4) 수료 판단
+            if(res?.graduated){
               showScanResult('success','🎓',target.name,'🎓 수료 완료! 축하합니다!');
             }else{
-              showScanResult('error','⚠️',target.name,`수료 조건 미충족: 출석률 ${attRate}%`);
+              showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
             }
             showToast(`💳 ${target.name} 카드 반납 완료`);
-            apiPost({action:'returnCard',cardId:savedCardCode,day:day}).catch(()=>{});
-          });
+          }catch(e){
+            showScanResult('error','❌',target.name,'처리 실패: '+(e.message||'오류'));
+          }
         }});
         setCardMappingTarget(null);
         return;
