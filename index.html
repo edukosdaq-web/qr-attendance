@@ -1172,8 +1172,17 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     }
   };
 
+  // 한글→영문 자판 변환 (바코드 스캐너 한영전환 미스 대응)
+  const KO2EN={'ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p',
+    'ㅁ':'a','ㄴ':'s','ㅇ':'d','ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l',
+    'ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m',
+    'ㅃ':'Q','ㅉ':'W','ㄸ':'E','ㄲ':'R','ㅆ':'T','ㅒ':'O','ㅖ':'P'};
+  function ko2en(s){return s.split('').map(c=>KO2EN[c]||c).join('')}
+
   const processQR=async(rawCode)=>{
-    const code=rawCode.replace(/[\r\n\t]/g,'').trim();
+    let code=rawCode.replace(/[\r\n\t]/g,'').trim();
+    // 한글 자판 입력 감지 시 영문 변환
+    if(/[ㄱ-ㅎㅏ-ㅣ]/.test(code)){code=ko2en(code);console.log('[QR] 한영변환:',code)}
     console.log('[QR] input:', JSON.stringify(code), 'len:', code.length);
 
     // 카드 매핑/반납 대기 중이면 카드 처리
