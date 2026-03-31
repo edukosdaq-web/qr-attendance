@@ -1077,12 +1077,13 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       console.log('[카드] 한영변환:', rawCardCode, '→', cardCode);
     }
     // 카드 QR 검증: KOSDAQ-C- 접두사 필수
-    if(!cardCode.toUpperCase().startsWith('KOSDAQ-C-')){
-      showScanResult('error','⚠️','잘못된 QR','출입카드 QR을 스캔하세요 (참가자 QR이 아닌 카드 QR)');
+    cardCode=cardCode.toUpperCase().trim();
+    if(!cardCode.startsWith('KOSDAQ-C-')){
+      console.log('[카드검증실패] 입력값:', JSON.stringify(rawCardCode), '→ 변환후:', JSON.stringify(cardCode));
+      showScanResult('error','⚠️','잘못된 QR',`스캔값: "${cardCode.substring(0,20)}" — 출입카드 QR(KOSDAQ-C-)이 아닙니다`);
       setQr('');
       return;
     }
-    cardCode=cardCode.toUpperCase();
     const target=cardMappingTarget;
     // target 초기화를 성공 시점까지 지연 (잘못된 카드 스캔 시 재시도 가능하도록)
     setQr('');
