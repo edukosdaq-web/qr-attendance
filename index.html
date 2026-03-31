@@ -1383,6 +1383,36 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                 const cardDisplay=mappedCard?{label:mappedCard.qrCode.replace('KOSDAQ-C-','C-'),status:'mapped'}
                   :returnedCard?{label:returnedCard.qrCode.replace('KOSDAQ-C-','C-'),status:'returned'}
                   :{label:'—',status:'none'};
+                // 수동 출석
+                const handleManualAtt=async()=>{
+                  if(att){showToast('ℹ️ 이미 출석 처리됨');return}
+                  if(!confirm(`${p.name}님을 ${day}일차 ${session} 수동 출석 처리하시겠습니까?`))return;
+                  const optAtt={id:'manual_'+Date.now(),participantId:p.id,trainingId:training.id,day,session,checkedAt:new Date().toISOString(),method:'manual',late:false};
+                  setAttendance(prev=>[...prev,optAtt]);
+                  try{
+                    const res=await apiPost({action:'scan',qrCode:p.qrCode,day,session,method:'manual'});
+                    if(res.status!=='ok'){setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));showToast(`❌ ${res.message}`)}
+                    else showToast(`✅ ${p.name} 수동 출석 완료`);
+                  }catch(e){showToast('⚠️ 오프라인 저장됨')}
+                };
+                // 수동 카드 배부
+                const handleManualAssign=async()=>{
+                  const cardNum=prompt(`${p.name}님에게 배부할 카드 번호 입력:\n(예: 050, C-050, KOSDAQ-C-050)`);
+                  if(!cardNum)return;
+                  let cardId=cardNum.trim().toUpperCase();
+                  if(/^\d+$/.test(cardId))cardId='KOSDAQ-C-'+cardId;
+                  else if(cardId.startsWith('C-'))cardId='KOSDAQ-'+cardId;
+                  else if(!cardId.startsWith('KOSDAQ-C-'))cardId='KOSDAQ-C-'+cardId;
+                  showToast(`⏳ ${p.name} 카드 ${cardId} 배부 중...`);
+                  try{
+                    const res=await apiPost({action:'mapCard',cardId,participantId:p.id,day:String(day),session});
+                    if(res.status==='ok'){
+                      showToast(`✅ ${p.name} → ${cardId} 배부 완료`);
+                      setCards(prev=>[...prev,{id:'optC_'+Date.now(),qrCode:cardId,status:'mapped',participantId:p.id,participantName:p.name}]);
+                    }else showToast(`❌ ${res.message}`);
+                  }catch(e){showToast('❌ 서버 연결 실패')}
+                };
+                // 수동 카드 반납
                 const handleManualReturn=async()=>{
                   if(!mappedCard){showToast('⚠️ 매핑된 카드가 없습니다');return}
                   if(!confirm(`${p.name}님의 카드(${cardDisplay.label})를 수동 반납 처리하시겠습니까?`))return;
@@ -1400,7 +1430,11 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                   <td className="p-2 text-center text-xs font-mono">{cardDisplay.status==='returned'?<span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">✅ {cardDisplay.label} 반납</span>:cardDisplay.status==='mapped'?<span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{cardDisplay.label}</span>:<span className="text-gray-400">—</span>}</td>
                   <td className="p-2 text-center">{att?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">출석</span>:<span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">미출석</span>}</td>
                   <td className="p-2 text-center text-xs">{att?new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}</td>
-                  <td className="p-2 text-center">{mappedCard&&<button className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200" onClick={handleManualReturn}>반납</button>}</td></tr>;
+                  <td className="p-2 text-center"><div className="flex flex-col gap-1">
+                    {!att&&<button className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200" onClick={handleManualAtt}>출석</button>}
+                    {!mappedCard&&!returnedCard&&<button className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200" onClick={handleManualAssign}>배부</button>}
+                    {mappedCard&&<button className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200" onClick={handleManualReturn}>반납</button>}
+                  </div></td></tr>;
               })}</tbody>
             </table>
           </div>
