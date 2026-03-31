@@ -1375,15 +1375,29 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         <div className="bg-white rounded-xl p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-gray-500 mb-3">실시간 현황 ({day}일차 {session==='AM'?'오전':'오후'})</h3>
           <div className="max-h-96 overflow-y-auto">
-            <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th><th className="p-2">카드</th><th className="p-2">상태</th><th className="p-2">시각</th></tr></thead>
+            <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th><th className="p-2">카드</th><th className="p-2">상태</th><th className="p-2">시각</th><th className="p-2">관리</th></tr></thead>
               <tbody>{participants.map(p=>{
                 const att=present.find(a=>a.participantId===p.id);
                 const card=cards.find(c=>c.participantId===p.id&&c.status==='mapped');
                 const cardLabel=card?card.qrCode.replace('KOSDAQ-C-','C-'):'—';
+                const handleManualReturn=async()=>{
+                  if(!card){showToast('⚠️ 매핑된 카드가 없습니다');return}
+                  if(!confirm(`${p.name}님의 카드(${cardLabel})를 수동 반납 처리하시겠습니까?`))return;
+                  showToast(`⏳ ${p.name} 카드 반납 중...`);
+                  try{
+                    const res=await apiPost({action:'returnCard',cardId:card.qrCode,day:String(day)});
+                    if(res.status==='ok'){
+                      showToast(`✅ ${p.name} 카드 반납 완료`);
+                      if(res.data?.PM출석){setAttendance(prev=>[...prev,{id:res.data.PM출석.id||'srv_'+Date.now(),participantId:p.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'manual',late:false}])}
+                      setCards(prev=>prev.map(c2=>c2.id===card.id?{...c2,status:'available',participantId:null,participantName:null}:c2));
+                    }else{showToast(`❌ 반납 실패: ${res.message}`)}
+                  }catch(e){showToast('❌ 서버 연결 실패')}
+                };
                 return <tr key={p.id} className="border-t"><td className="p-2 font-semibold">{p.name}</td><td className="p-2 text-gray-500 text-xs">{p.company}</td>
                   <td className="p-2 text-center text-xs font-mono">{cardLabel}</td>
                   <td className="p-2 text-center">{att?<span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">출석</span>:<span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">미출석</span>}</td>
-                  <td className="p-2 text-center text-xs">{att?new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}</td></tr>;
+                  <td className="p-2 text-center text-xs">{att?new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}</td>
+                  <td className="p-2 text-center">{card&&<button className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200" onClick={handleManualReturn}>반납</button>}</td></tr>;
               })}</tbody>
             </table>
           </div>
