@@ -1066,14 +1066,23 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   };
 
   // 카드 처리: AM→매핑, PM 마지막날→반납+수료
-  const processCardMapping=async(cardCode)=>{
+  const processCardMapping=async(rawCardCode)=>{
     if(!cardMappingTarget)return;
+    // 한글자판 → 영문 자동변환
+    const KO_MAP={'ㅁ':'a','ㄴ':'s','ㅇ':'d','ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l','ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m','ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p','ㅃ':'Q','ㅉ':'W','ㄸ':'E','ㄲ':'R','ㅆ':'T','ㅒ':'O','ㅖ':'P'};
+    let cardCode=rawCardCode;
+    if(/[ㄱ-ㅎㅏ-ㅣ]/.test(cardCode)){
+      cardCode=[...cardCode].map(ch=>KO_MAP[ch]||ch).join('');
+      cardCode=cardCode.toUpperCase();
+      console.log('[카드] 한영변환:', rawCardCode, '→', cardCode);
+    }
     // 카드 QR 검증: KOSDAQ-C- 접두사 필수
-    if(!cardCode.startsWith('KOSDAQ-C-')){
+    if(!cardCode.toUpperCase().startsWith('KOSDAQ-C-')){
       showScanResult('error','⚠️','잘못된 QR','출입카드 QR을 스캔하세요 (참가자 QR이 아닌 카드 QR)');
       setQr('');
       return;
     }
+    cardCode=cardCode.toUpperCase();
     const target=cardMappingTarget;
     // target 초기화를 성공 시점까지 지연 (잘못된 카드 스캔 시 재시도 가능하도록)
     setQr('');
