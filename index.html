@@ -1069,8 +1069,9 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       // 마지막날 PM: 서버에서 최신 설문 상태 확인 → 카드 매칭 확인 → 수료 판단
       let pData=participants.find(p=>p.id===target.id);
       try{
-        const freshP=await apiGet('getParticipants',{tid:training.id});
-        const freshOne=freshP?.find(p=>p.id===target.id);
+        const freshRes=await apiGet('getParticipants',{tid:training.id});
+        const freshP=freshRes?.data||freshRes||[];
+        const freshOne=Array.isArray(freshP)?freshP.find(p=>p.id===target.id):null;
         if(freshOne){
           const surveyOk=freshOne.설문완료==='Y'||freshOne.설문완료===true;
           if(surveyOk&&!pData?.surveyCompleted){
