@@ -60,32 +60,21 @@ async function apiGet(action,params={}){
 }
 
 async function apiPost(body){
-  try{
-    // GAS는 POST→302리다이렉트→GET 응답 구조. mode:cors + redirect:follow 사용
-    const res=await fetch(API_URL,{
-      method:'POST',
-      redirect:'follow',
-      headers:{'Content-Type':'text/plain'},
-      body:JSON.stringify({...body,authKey:AUTH_KEY}),
-    });
-    const text=await res.text();
-    try{return JSON.parse(text)}catch(pe){
-      console.error('API POST parse error:',body.action,text?.substring(0,200));
-      throw new Error('서버 응답 파싱 실패');
-    }
-  }catch(e){
-    console.error('API POST error:',body.action,e);
-    // fetch 실패 시 GET 폴백: body를 URL params로 변환
+  // 배열/객체 포함 액션은 POST, 나머지는 GET (Safari POST→302 문제 우회)
+  const needsPost=['uploadParticipants','saveSurveyConfig','submitSurvey'];
+  if(needsPost.includes(body.action)){
     try{
-      console.log('POST 실패, GET 폴백 시도:',body.action);
-      const qs=new URLSearchParams({...body,authKey:AUTH_KEY}).toString();
-      const res2=await fetch(API_URL+'?'+qs,{redirect:'follow'});
-      const json2=await res2.json();
-      return json2;
-    }catch(e2){
-      console.error('API GET fallback error:',body.action,e2);
-      throw e;
-    }
+      const res=await fetch(API_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body:JSON.stringify({...body,authKey:AUTH_KEY})});
+      return await res.json();
+    }catch(e){console.error('API POST error:',body.action,e);throw e}
+  }
+  const qs=new URLSearchParams({...body,authKey:AUTH_KEY}).toString();
+  try{
+    const res=await fetch(API_URL+'?'+qs,{redirect:'follow'});
+    return await res.json();
+  }catch(e){
+    console.error('API GET error:',body.action,e);
+    throw e;
   }
 }
 
