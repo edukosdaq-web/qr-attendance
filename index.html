@@ -1031,6 +1031,21 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   const [qrInput,setQr]=useState('');
   const [showManual,setShowManual]=useState(false);
   const [scanning,setScanning]=useState(false);
+  const lastScanTimeRef=useRef(0); // v2: QR 연속인식 방지 (0.5초 쿨다운)
+  const [isFullscreen,setIsFullscreen]=useState(false); // v2: 전체화면 상태
+
+  // v2: F11 방지 + 전체화면 토글
+  useEffect(()=>{
+    const handleF11=(e)=>{if(e.key==='F11'){e.preventDefault();toggleFullscreen();}};
+    const handleFSChange=()=>{setIsFullscreen(!!document.fullscreenElement);};
+    document.addEventListener('keydown',handleF11);
+    document.addEventListener('fullscreenchange',handleFSChange);
+    return()=>{document.removeEventListener('keydown',handleF11);document.removeEventListener('fullscreenchange',handleFSChange);};
+  },[]);
+  const toggleFullscreen=()=>{
+    if(!document.fullscreenElement){document.documentElement.requestFullscreen().catch(()=>{});}
+    else{document.exitFullscreen().catch(()=>{});}
+  };
   const inputRef=useRef();
   const scanTimerRef=useRef(null);
 
@@ -1220,6 +1235,11 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   function ko2en(s){return s.split('').map(c=>KO2EN[c]||c).join('')}
 
   const processQR=async(rawCode)=>{
+    // v2: 연속인식 방지 — 0.5초 이내 재스캔 무시
+    const now=Date.now();
+    if(now-lastScanTimeRef.current<500){console.log('[QR] 연속인식 방지: 0.5초 쿨다운');setQr('');return;}
+    lastScanTimeRef.current=now;
+
     let code=rawCode.replace(/[\r\n\t]/g,'').trim();
     // 한글 자판 입력 감지 시 영문 변환
     if(/[ㄱ-ㅎㅏ-ㅣ]/.test(code)){code=ko2en(code);console.log('[QR] 한영변환:',code)}
@@ -1272,6 +1292,12 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     }
 
     // ── AM: 기존 로직 ──
+    // v2: AM에서 카드 QR이 먼저 스캔된 경우 큰 경고
+    if(session==='AM'&&code.toUpperCase().startsWith('KOSDAQ-C')){
+      showScanResult('error','🚫','순서 오류!','❌ 핸드폰 QR을 먼저 스캔해주세요!\n카드는 핸드폰 QR 이후에 스캔합니다.');
+      setQr('');
+      return;
+    }
     let target=participants.find(p=>p.qrCode===code||p.qrCode?.toUpperCase()===code.toUpperCase());
     if(!target){
       const codeUpper=code.toUpperCase();
@@ -1308,17 +1334,34 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
 
   return(
     <div>
-      <h1 className="text-2xl font-bold mb-5">✅ 출석 체크</h1>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <h1 className="text-2xl font-bold">✅ 출석 체크</h1>
+        <button onClick={toggleFullscreen} style={{padding:'8px 16px',background:isFullscreen?'#dc2626':'#2563eb',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>{isFullscreen?'🔙 전체화면 해제':'🖥️ 전체화면'}</button>
+      </div>
       {/* ── 세션별 안내 배너 (크게) ── */}
-      {session==='AM'&&<div className="bg-green-100 border-2 border-green-500 rounded-2xl p-6 mb-4 text-center shadow-md">
-        <div className="text-5xl mb-3">☀️</div>
-        <div className="text-2xl font-bold text-green-800 mb-3">오전 입실</div>
-        <div className="grid grid-cols-3 gap-2 max-w-md mx-auto mb-3">
-          <div className="bg-white rounded-xl p-3 shadow-sm"><div className="text-3xl mb-1">📱</div><div className="text-sm font-bold text-green-700">STEP 1</div><div className="text-xs text-gray-600">참가자 QR<br/>(핸드폰)</div></div>
-          <div className="flex items-center justify-center text-2xl text-green-600">→</div>
-          <div className="bg-white rounded-xl p-3 shadow-sm"><div className="text-3xl mb-1">💳</div><div className="text-sm font-bold text-green-700">STEP 2</div><div className="text-xs text-gray-600">출입카드<br/>스캔</div></div>
+      {session==='AM'&&<div style={{background:'#fff',border:'3px solid #2563eb',borderRadius:20,overflow:'hidden',maxWidth:480,margin:'0 auto 16px',textAlign:'center'}}>
+        <div style={{background:'linear-gradient(135deg,#1e40af,#3b82f6)',padding:'10px 16px',color:'#fff'}}>
+          <div style={{fontSize:18,fontWeight:800,letterSpacing:1}}>⚡ 아래의 순서대로 스캔해주세요 ⚡</div>
         </div>
-        <div className="text-base text-green-700 font-semibold">✅ 출석 + 카드 배부 완료!</div>
+        <div style={{padding:'28px 20px'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:16,marginBottom:20}}>
+            <div style={{textAlign:'center'}}>
+              <div style={{display:'inline-block',background:'#1e40af',color:'#fff',fontSize:21,fontWeight:800,width:42,height:42,lineHeight:'42px',borderRadius:'50%',marginBottom:8}}>1</div>
+              <div style={{width:143,height:143,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:68,background:'#dbeafe',border:'5px solid #3b82f6',margin:'0 auto 12px'}}>📱</div>
+              <div style={{fontSize:21,fontWeight:800,color:'#1f2937'}}>핸드폰 QR</div>
+              <div style={{fontSize:14,color:'#6b7280',marginTop:4}}>참가자 본인 QR 먼저!</div>
+            </div>
+            <div style={{fontSize:52,color:'#6b7280',fontWeight:900,marginTop:-20}}>➜</div>
+            <div style={{textAlign:'center'}}>
+              <div style={{display:'inline-block',background:'#16a34a',color:'#fff',fontSize:21,fontWeight:800,width:42,height:42,lineHeight:'42px',borderRadius:'50%',marginBottom:8}}>2</div>
+              <div style={{width:143,height:143,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:68,background:'#dcfce7',border:'5px solid #16a34a',margin:'0 auto 12px'}}>💳</div>
+              <div style={{fontSize:21,fontWeight:800,color:'#1f2937'}}>출입카드</div>
+              <div style={{fontSize:14,color:'#6b7280',marginTop:4}}>배부받은 카드 스캔</div>
+            </div>
+          </div>
+          <div style={{background:'#f0fdf4',border:'2px solid #86efac',borderRadius:12,padding:16,fontSize:17,fontWeight:700,color:'#166534',marginBottom:14}}>✅ 출석 완료 + 카드 배부</div>
+          <div style={{fontSize:15,color:'#dc2626',fontWeight:700}}>❌ 카드를 먼저 찍으면 출석이 안 됩니다!</div>
+        </div>
       </div>}
       {!isLastDay&&session==='PM'&&<div className="bg-blue-100 border-2 border-blue-500 rounded-2xl p-6 mb-4 text-center shadow-md">
         <div className="text-5xl mb-3">🌙</div>

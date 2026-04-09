@@ -45,20 +45,52 @@ const params=new URLSearchParams(location.search);
 const token=params.get('token');
 const content=document.getElementById('content');
 
+const CACHE_KEY='qr_cache_'+token;
+
 if(!token){
   content.innerHTML='<div class="error">QR 토큰이 없습니다.<br>문자에서 링크를 다시 확인해주세요.</div>';
 }else{
-  // API 호출하여 접근 가능 여부 확인
+  // v2: 2단계 로딩 — 캐시 먼저 표시 → 서버 확인
+  showCachedOrLoading();
   checkAccess();
+}
+
+function showCachedOrLoading(){
+  try{
+    const cached=JSON.parse(localStorage.getItem(CACHE_KEY));
+    if(cached&&cached.이름){
+      // 캐시에서 이름/회사 즉시 표시
+      let nameHtml='<div class="name-tag">'+escHtml(cached.이름)+'</div>';
+      if(cached.회사) nameHtml+='<div class="company-tag">'+escHtml(cached.회사)+'</div>';
+      // 마지막날이 아니었거나 설문완료 상태면 QR 즉시 표시
+      if(!cached.isLastDay||cached.surveyCompleted||cached.allowed){
+        content.innerHTML=nameHtml+
+          '<div class="qr-wrap"><canvas id="qr"></canvas></div>'+
+          '<div class="token">'+escHtml(token)+'</div>'+
+          '<div style="color:#999;font-size:11px;margin-bottom:12px">서버 확인 중...</div>'+
+          '<div class="info">📋 <strong>안내</strong><br>• 현장 입구에서 이 화면을 보여주세요.<br>• 화면 밝기를 최대로 올려주세요.</div>';
+        QRCode.toCanvas(document.getElementById('qr'),token,{width:220,margin:2}).catch(()=>{});
+      }else{
+        // 마지막날 + 설문 미완료 → QR 표시 안 하고 로딩만
+        content.innerHTML=nameHtml+
+          '<div style="padding:20px 0;color:#666;font-size:14px">📝 서버에서 설문 완료 여부 확인 중...</div>';
+      }
+      return;
+    }
+  }catch(e){}
+  // 캐시 없으면 로딩 표시
+  content.innerHTML='<div style="padding:20px 0;color:#999">확인 중...</div>';
 }
 
 async function checkAccess(){
   try{
     const res=await fetch(API_URL+'?action=checkQRAccess&token='+encodeURIComponent(token),{redirect:'follow'});
     const json=await res.json();
-    
+
     if(json.status==='ok'&&json.data){
       const d=json.data;
+      // v2: 캐시 저장
+      try{localStorage.setItem(CACHE_KEY,JSON.stringify(d));}catch(e){}
       if(d.allowed){
         showQR(d);
       }else{
