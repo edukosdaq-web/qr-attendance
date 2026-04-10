@@ -963,7 +963,7 @@ function MappingPage({training,participants,cards,showToast,showScanResult,loadC
         <div className={`border-2 border-dashed rounded-xl p-6 text-center transition ${found&&found!=='notfound'?'border-green-500 bg-green-50':pQr?'border-blue-500 bg-blue-50':'border-gray-300'}`}>
           <div className="text-4xl mb-2">📱</div>
           <div className="font-bold mb-2">스캐너 1 — 참가자 QR</div>
-          <input ref={pRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={pQr} onChange={e=>setPQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&found&&found!=='notfound')cRef.current?.focus()}} placeholder="참가자 QR 스캔..." autoFocus/>
+          <input ref={pRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={pQr} onChange={e=>setPQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&found&&found!=='notfound')cRef.current?.focus()}} placeholder="참가자 QR 스캔..." autoFocus/>
           <div className="mt-2 flex gap-2 justify-center">
             <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
           </div>
@@ -973,7 +973,7 @@ function MappingPage({training,participants,cards,showToast,showScanResult,loadC
         <div className={`border-2 border-dashed rounded-xl p-6 text-center transition ${cQr?'border-blue-500 bg-blue-50':'border-gray-300'}`}>
           <div className="text-4xl mb-2">💳</div>
           <div className="font-bold mb-2">스캐너 2 — 출입카드 QR</div>
-          <input ref={cRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={cQr} onChange={e=>setCQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter')doMap()}} placeholder="카드 QR 스캔..."/>
+          <input ref={cRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={cQr} onChange={e=>setCQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter')doMap()}} placeholder="카드 QR 스캔..."/>
         </div>
       </div>
       <div className="text-center mb-5">
@@ -1408,7 +1408,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         <div>
           <div className="bg-white rounded-xl p-5 shadow-sm mb-4">
             <h3 className="text-sm font-semibold text-gray-500 mb-3">📱 QR 스캔</h3>
-            <input ref={inputRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=10){scanTimerRef.current=setTimeout(()=>{if(!scanning){processQR(trimmed);setQr('')}},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v&&!scanning){if(scanTimerRef.current)clearTimeout(scanTimerRef.current);processQR(v);setQr('')}}}} placeholder="카드 QR 또는 참가자 QR 스캔..." autoFocus/>
+            <input ref={inputRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=10){scanTimerRef.current=setTimeout(()=>{if(!scanning){processQR(trimmed);setQr('')}},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v&&!scanning){if(scanTimerRef.current)clearTimeout(scanTimerRef.current);processQR(v);setQr('')}}}} placeholder="카드 QR 또는 참가자 QR 스캔..." autoFocus/>
             <div className="flex gap-2 mt-3">
               <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
               <button className="px-3 py-1 border rounded text-xs" onClick={()=>loadAttendance(training.id,day).then(()=>showToast('🔄 새로고침'))}>🔄 새로고침</button>
@@ -1498,7 +1498,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
               {isLastDay&&session==='PM'?'카드 QR → 오후 출석 + 카드 반납 + 수료':'카드 뒷면의 QR코드를 스캐너에 대주세요'}
             </div>
           </div>
-          <input type="text" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder={isLastDay&&session==='PM'?'카드 QR 스캔 → 수료 처리':'카드 QR 스캔 대기...'} autoFocus/>
+          <input type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder={isLastDay&&session==='PM'?'카드 QR 스캔 → 수료 처리':'카드 QR 스캔 대기...'} autoFocus/>
           {session==='AM'&&<button className="px-6 py-2 bg-gray-200 rounded-lg text-sm font-medium" onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 없이)')}}>건너뛰기</button>}
         </div>
       </div>}
@@ -1631,7 +1631,7 @@ function CompletionPage({training,participants,attendanceRecords,cards,showToast
             !target?(
               <div>
                 <h3 className="text-sm font-semibold text-gray-500 mb-3">참가자 QR 스캔</h3>
-                <input ref={inputRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>setQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&qrInput)resolveTarget(qrInput)}} placeholder="참가자 QR 스캔..." autoFocus/>
+                <input ref={inputRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>setQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&qrInput)resolveTarget(qrInput)}} placeholder="참가자 QR 스캔..." autoFocus/>
                 <div className="flex gap-2 mt-3">
                   <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
                 </div>
@@ -1650,7 +1650,7 @@ function CompletionPage({training,participants,attendanceRecords,cards,showToast
                 </div>
                 <div className="mb-4">
                   <h4 className="text-sm font-semibold mb-2">💳 카드 반납 (카드 QR 스캔)</h4>
-                  <input ref={cardRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={cardQr} onChange={e=>setCardQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter')processCompletion()}} placeholder="출입카드 QR 스캔 (반납)..."/>
+                  <input ref={cardRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={cardQr} onChange={e=>setCardQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter')processCompletion()}} placeholder="출입카드 QR 스캔 (반납)..."/>
                 </div>
                 <button className="w-full px-6 py-4 bg-green-600 text-white text-lg rounded-xl font-bold hover:bg-green-700 disabled:opacity-50 flex items-center justify-center gap-2" onClick={processCompletion} disabled={processing}>
                   {processing?<><Spinner/> 처리 중...</>:'🎓 수료 처리'}
@@ -1662,7 +1662,7 @@ function CompletionPage({training,participants,attendanceRecords,cards,showToast
               <div>
                 <h3 className="text-sm font-semibold text-gray-500 mb-3">🚪 중도퇴장 — QR 스캔</h3>
                 <div className="bg-orange-50 border border-orange-300 rounded-lg p-3 mb-3 text-sm">⚠️ 중도퇴장자는 <strong>미수료</strong> 처리됩니다.</div>
-                <input ref={inputRef} type="text" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>setQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&qrInput)resolveTarget(qrInput)}} placeholder="QR 스캔..." autoFocus/>
+                <input ref={inputRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>setQr(e.target.value.trim())} onKeyDown={e=>{if(e.key==='Enter'&&qrInput)resolveTarget(qrInput)}} placeholder="QR 스캔..." autoFocus/>
                 <button className="mt-3 px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
               </div>
             ):(
