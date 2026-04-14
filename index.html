@@ -1086,9 +1086,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     // 한글자판 → 영문 자동변환
     const KO_MAP={'ㅁ':'a','ㄴ':'s','ㅇ':'d','ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l','ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m','ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p','ㅃ':'Q','ㅉ':'W','ㄸ':'E','ㄲ':'R','ㅆ':'T','ㅒ':'O','ㅖ':'P'};
     let cardCode=rawCardCode;
-    if(/[ㄱ-ㅎㅏ-ㅣ]/.test(cardCode)){
-      cardCode=[...cardCode].map(ch=>KO_MAP[ch]||ch).join('');
-      cardCode=cardCode.toUpperCase();
+    if(/[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(cardCode)){
+      cardCode=ko2en(cardCode).toUpperCase();
       console.log('[카드] 한영변환:', rawCardCode, '→', cardCode);
     }
     // 카드 QR 검증: KOSDAQ-C- 접두사 필수
@@ -1228,11 +1227,40 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   };
 
   // 한글→영문 자판 변환 (바코드 스캐너 한영전환 미스 대응)
+  // 개별 자모 매핑
   const KO2EN={'ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p',
     'ㅁ':'a','ㄴ':'s','ㅇ':'d','ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l',
     'ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m',
     'ㅃ':'Q','ㅉ':'W','ㄸ':'E','ㄲ':'R','ㅆ':'T','ㅒ':'O','ㅖ':'P'};
-  function ko2en(s){return s.split('').map(c=>KO2EN[c]||c).join('')}
+  // 완성형 한글 분해용 테이블
+  const CHO=['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  const JUNG=['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ','ㅙ','ㅚ','ㅛ','ㅜ','ㅝ','ㅞ','ㅟ','ㅠ','ㅡ','ㅢ','ㅣ'];
+  const JONG=['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  // 복합 자모 분해
+  const JUNG_DECOMP={'ㅘ':'ㅗㅏ','ㅙ':'ㅗㅐ','ㅚ':'ㅗㅣ','ㅝ':'ㅜㅓ','ㅞ':'ㅜㅔ','ㅟ':'ㅜㅣ','ㅢ':'ㅡㅣ'};
+  const JONG_DECOMP={'ㄳ':'ㄱㅅ','ㄵ':'ㄴㅈ','ㄶ':'ㄴㅎ','ㄺ':'ㄹㄱ','ㄻ':'ㄹㅁ','ㄼ':'ㄹㅂ','ㄽ':'ㄹㅅ','ㄾ':'ㄹㅌ','ㄿ':'ㄹㅍ','ㅀ':'ㄹㅎ','ㅄ':'ㅂㅅ'};
+  function decomposeKorean(s){
+    let result='';
+    for(const ch of s){
+      const code=ch.charCodeAt(0);
+      if(code>=0xAC00&&code<=0xD7A3){
+        const offset=code-0xAC00;
+        const cho=CHO[Math.floor(offset/588)];
+        let jung=JUNG[Math.floor((offset%588)/28)];
+        let jong=JONG[offset%28];
+        result+=cho;
+        result+=(JUNG_DECOMP[jung]||jung);
+        if(jong)result+=(JONG_DECOMP[jong]||jong);
+      }else{
+        result+=ch;
+      }
+    }
+    return result;
+  }
+  function ko2en(s){
+    const decomposed=decomposeKorean(s);
+    return decomposed.split('').map(c=>KO2EN[c]||c).join('');
+  }
 
   const processQR=async(rawCode)=>{
     // v2: 연속인식 방지 — 0.5초 이내 재스캔 무시
@@ -1241,8 +1269,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     lastScanTimeRef.current=now;
 
     let code=rawCode.replace(/[\r\n\t]/g,'').trim();
-    // 한글 자판 입력 감지 시 영문 변환
-    if(/[ㄱ-ㅎㅏ-ㅣ]/.test(code)){code=ko2en(code);console.log('[QR] 한영변환:',code)}
+    // 한글 자판 입력 감지 시 영문 변환 (개별 자모 + 완성형 한글 모두 처리)
+    if(/[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(code)){code=ko2en(code);console.log('[QR] 한영변환:',rawCode,'→',code)}
     console.log('[QR] input:', JSON.stringify(code), 'len:', code.length);
 
     // 카드 매핑/반납 대기 중이면 카드 처리
