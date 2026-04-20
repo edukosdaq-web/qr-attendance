@@ -50,14 +50,24 @@ const CACHE_KEY='qr_cache_'+token;
 if(!token){
   content.innerHTML='<div class="error">QR 토큰이 없습니다.<br>문자에서 링크를 다시 확인해주세요.</div>';
 }else{
-  // v2: 2단계 로딩 — 캐시 먼저 표시 → 서버 확인
-  showCachedOrLoading();
-  checkAccess();
+  // v5.3: 캐시 우선 표시 + 조건부 API 호출 최적화
+  const cached = readCache();
+  showCachedOrLoading(cached);
+  // 최근 1시간 내 캐시 + 비마지막날 → 서버 호출 생략 (평일 로드 즉시 완료)
+  if (cached && cached._ts && (Date.now() - cached._ts) < 3600000 && cached.isLastDay === false) {
+    console.log('[qr] 비마지막날 캐시 히트, API 호출 스킵');
+  } else {
+    checkAccess();
+  }
 }
 
-function showCachedOrLoading(){
+function readCache(){
+  try { return JSON.parse(localStorage.getItem(CACHE_KEY)); }
+  catch(e) { return null; }
+}
+
+function showCachedOrLoading(cached){
   try{
-    const cached=JSON.parse(localStorage.getItem(CACHE_KEY));
     if(cached&&cached.이름){
       // 캐시에서 이름/회사 즉시 표시
       let nameHtml='<div class="name-tag">'+escHtml(cached.이름)+'</div>';
@@ -90,7 +100,7 @@ async function checkAccess(){
     if(json.status==='ok'&&json.data){
       const d=json.data;
       // v2: 캐시 저장
-      try{localStorage.setItem(CACHE_KEY,JSON.stringify(d));}catch(e){}
+      try{d._ts=Date.now();localStorage.setItem(CACHE_KEY,JSON.stringify(d));}catch(e){}
       if(d.allowed){
         showQR(d);
       }else{
