@@ -155,14 +155,16 @@ body {
 .menu-btn:active::before { opacity: 0.04; }
 
 .menu-icon {
-  width: 48px;
-  height: 48px;
+  width: 52px;
+  height: 52px;
   border-radius: var(--radius-sm);
   background: var(--orange-pale);
+  color: var(--orange-dark);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 22px;
+  font-size: 13px;
+  font-weight: 700;
   flex-shrink: 0;
 }
 
@@ -488,7 +490,7 @@ body {
 <body>
 
 <div class="header">
-  <div class="header-badge">📍 오시는 길 안내</div>
+  <div class="header-badge">오시는 길 안내</div>
   <h1>2026년 공시담당임원 전문연수<br>제1차 오프라인 (서울)</h1>
   <p>JW 매리어트 호텔 서울 · 5층 행사장</p>
 </div>
@@ -498,7 +500,7 @@ body {
   <div class="section-title">출발 위치 선택</div>
   <div class="menu-list">
     <button class="menu-btn" onclick="start('lobby')">
-      <div class="menu-icon">🏨</div>
+      <div class="menu-icon">로비</div>
       <div class="menu-text">
         <strong>호텔 로비에서</strong>
         <span>로비 입장 후 행사장 이동</span>
@@ -506,7 +508,7 @@ body {
       <div class="menu-arrow">›</div>
     </button>
     <button class="menu-btn" onclick="showParking()">
-      <div class="menu-icon">🅿️</div>
+      <div class="menu-icon">주차</div>
       <div class="menu-text">
         <strong>센트럴시티 주차장에서</strong>
         <span>지하 3층 / 지하 4층 선택</span>
@@ -514,7 +516,7 @@ body {
       <div class="menu-arrow">›</div>
     </button>
     <button class="menu-btn" onclick="start('subway')">
-      <div class="menu-icon">🚇</div>
+      <div class="menu-icon">지하철</div>
       <div class="menu-text">
         <strong>고속터미널역에서</strong>
         <span>지하철 이용 시</span>
@@ -532,7 +534,7 @@ body {
   </div>
 
   <div class="parking-notice">
-    <div class="parking-notice-title">⚠️ 주차장 안내</div>
+    <div class="parking-notice-title">주차장 안내</div>
     <p class="parking-notice-text">
       <strong>JW메리어트서울 · 신세계백화점 · 파미에스테이션</strong>으로 주차해 주시기 바랍니다.
     </p>
@@ -588,10 +590,10 @@ body {
 let slides = [], idx = 0;
 
 const routeNames = {
-  lobby: '🏨 호텔 로비에서',
-  b3:    '🅿️ 주차장 지하 3층에서',
-  b4:    '🅿️ 주차장 지하 4층에서',
-  subway:'🚇 고속터미널역에서'
+  lobby: '호텔 로비에서',
+  b3:    '주차장 지하 3층에서',
+  b4:    '주차장 지하 4층에서',
+  subway:'고속터미널역에서'
 };
 
 const allSlides = {
