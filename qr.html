@@ -47,18 +47,27 @@ const content=document.getElementById('content');
 
 const CACHE_KEY='qr_cache_'+token;
 
+// v5.4: ?refresh=1 또는 ?nocache=1 로 강제 무효화
+if(params.get('refresh')==='1'||params.get('nocache')==='1'){
+  try{localStorage.removeItem(CACHE_KEY);}catch(e){}
+}
+
 if(!token){
   content.innerHTML='<div class="error">QR 토큰이 없습니다.<br>문자에서 링크를 다시 확인해주세요.</div>';
 }else{
-  // v5.3: 캐시 우선 표시 + 조건부 API 호출 최적화
+  // v5.4: 캐시 즉시 표시 + 항상 서버 재확인(stale 방지)
+  // 운영 도중 「마지막날 설정」 변경 시 캐시된 isLastDay 값에 묶이지 않도록 항상 fetch.
   const cached = readCache();
   showCachedOrLoading(cached);
-  // 최근 1시간 내 캐시 + 비마지막날 → 서버 호출 생략 (평일 로드 즉시 완료)
-  if (cached && cached._ts && (Date.now() - cached._ts) < 3600000 && cached.isLastDay === false) {
-    console.log('[qr] 비마지막날 캐시 히트, API 호출 스킵');
-  } else {
-    checkAccess();
-  }
+  checkAccess();
+}
+
+function isSafeUrl(u){
+  if(!u) return false;
+  try{
+    const url=new URL(u, location.href);
+    return url.protocol==='http:'||url.protocol==='https:';
+  }catch(e){return false}
 }
 
 function readCache(){
@@ -122,9 +131,10 @@ function showQR(data){
     nameHtml='<div class="name-tag">'+escHtml(data.이름)+'</div>';
     if(data.회사) nameHtml+='<div class="company-tag">'+escHtml(data.회사)+'</div>';
   }
-  // 설문 안내 배너
+  // 설문 안내 배너 (URL 화이트리스트: http/https만)
   let surveyBanner='';
-  const surveyLink=data.surveyPageUrl||data.surveyUrl;
+  const rawSurveyLink=data.surveyPageUrl||data.surveyUrl;
+  const surveyLink=isSafeUrl(rawSurveyLink)?rawSurveyLink:'';
   if(data.isLastDay&&!data.surveyCompleted&&surveyLink){
     if(data.amChecked){
       // AM 출석 완료 후: 설문 강제 안내 (곧 블로킹됨)
@@ -174,7 +184,7 @@ function showSurveyRequired(data){
       '<div class="survey-icon">📝</div>'+
       '<div class="survey-msg">설문조사를 먼저 완료해주세요</div>'+
       '<div class="survey-sub">설문조사를 완료해야<br>QR코드가 표시됩니다.<br><br><span style="font-size:12px;color:#999">※ 설문 시 입력하신 이름은 출석 확인 후<br>암호화 처리되어 설문 응답자는 확인되지 않습니다.</span></div>'+
-      ((data.surveyPageUrl||data.surveyUrl)?'<a class="survey-btn" href="'+escHtml(data.surveyPageUrl||data.surveyUrl)+'" target="_blank">📝 설문조사 바로가기</a><br><br>':'')+
+      (isSafeUrl(data.surveyPageUrl||data.surveyUrl)?'<a class="survey-btn" href="'+escHtml(data.surveyPageUrl||data.surveyUrl)+'" target="_blank" rel="noopener noreferrer">📝 설문조사 바로가기</a><br><br>':'')+
       '<span class="survey-btn" style="background:#22c55e;cursor:pointer" id="surveyDoneBtn">✅ 설문 완료했어요</span>'+
     '</div>';
   // 설문 탭에서 돌아오면 자동 재확인

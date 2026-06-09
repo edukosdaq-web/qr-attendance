@@ -49,7 +49,20 @@ const DEV_MODE=false; // true이면 시뮬레이션 버튼 표시
 let AUTH_KEY=sessionStorage.getItem('kosdaq_v5_authkey')||'';
 function setAuthKey(key){AUTH_KEY=key;sessionStorage.setItem('kosdaq_v5_authkey',key)}
 
+// v5.4: 「verify」 액션은 인증 검증용이므로 AUTH_KEY 없어도 호출 가능
+// 그 외 액션은 AUTH_KEY 가드 — 빈 키로 서버 호출 차단 후 401 응답 강제
+const PUBLIC_ACTIONS=new Set(['verify','checkQRAccess','markSurvey']);
+function _requireAuth(action){
+  if(PUBLIC_ACTIONS.has(action)) return true;
+  if(!AUTH_KEY){
+    console.warn('[auth] AUTH_KEY 없음 — '+action+' 호출 차단');
+    return false;
+  }
+  return true;
+}
+
 async function apiGet(action,params={}){
+  if(!_requireAuth(action)){return{status:'err',code:'NO_AUTH',message:'인증키가 없습니다 — 다시 로그인해주세요'};}
   const qs=new URLSearchParams({action,authKey:AUTH_KEY,...params}).toString();
   const url=`${API_URL}?${qs}`;
   try{
@@ -63,6 +76,7 @@ async function apiGet(action,params={}){
 }
 
 async function apiPost(body){
+  if(!_requireAuth(body.action)){return{status:'err',code:'NO_AUTH',message:'인증키가 없습니다 — 다시 로그인해주세요'};}
   // 배열/객체 포함 액션은 POST, 나머지는 GET (Safari POST→302 문제 우회)
   const needsPost=['uploadParticipants','saveSurveyConfig','submitSurvey'];
   if(needsPost.includes(body.action)){
@@ -89,9 +103,22 @@ function cacheSet(key,val){try{const c=JSON.parse(localStorage.getItem(CACHE_KEY
 /* ─── Audio ─── */
 const AudioCtx=window.AudioContext||window.webkitAudioContext;
 let audioCtx=null;
-function playBeep(type){
+// v5.4: iOS Safari/모바일 브라우저 첫 스캔 무음 방지
+// 사용자 제스처 전 생성된 AudioContext는 suspended 상태이므로,
+// 첫 사용자 입력(키·터치·마우스) 발생 시 resume()을 1회 시도.
+function ensureAudioCtx(){
   try{
     if(!audioCtx)audioCtx=new AudioCtx();
+    if(audioCtx.state==='suspended')audioCtx.resume().catch(()=>{});
+  }catch(e){}
+}
+['pointerdown','keydown','touchstart'].forEach(ev=>{
+  window.addEventListener(ev,ensureAudioCtx,{once:false,passive:true});
+});
+function playBeep(type){
+  try{
+    ensureAudioCtx();
+    if(!audioCtx)return;
     const osc=audioCtx.createOscillator(),gain=audioCtx.createGain();
     osc.connect(gain);gain.connect(audioCtx.destination);gain.gain.value=0.3;
     if(type==='success'){osc.frequency.value=880;osc.type='sine'}
@@ -314,13 +341,29 @@ function App(){
 
   if(!loggedIn)return <Login onLogin={()=>{sessionStorage.setItem('kosdaq_v5_auth','1');setLoggedIn(true)}}/>;
 
+  // v5.4 Figma Make 톤: lucide-style 라인 아이콘 SVG path
+  const IconSvg=({d,size=20})=>(
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d={d}/>
+    </svg>
+  );
+  const ICONS={
+    dashboard:'M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z',
+    upload:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6',
+    attendance:'M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+    completion:'M22 10v6M2 10l10-5 10 5-10 5zM6 12v5c3 3 9 3 12 0v-5',
+    records:'M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v0zM12 11h4M12 16h4M8 11h.01M8 16h.01',
+    survey:'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
+    back:'M19 12H5M12 19l-7-7 7-7',
+    logout:'M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9',
+  };
   const nav=selTraining?[
-    {id:'training-dashboard',icon:'📊',label:'대시보드'},
-    {id:'upload',icon:'📁',label:'명단 업로드'},
-    {id:'attendance',icon:'✅',label:'출석 체크'},
-    {id:'completion',icon:'🎓',label:'수료 처리'},
-    {id:'records',icon:'📋',label:'출석부 조회'},
-    {id:'survey',icon:'📝',label:'설문 관리'},
+    {id:'training-dashboard',icon:ICONS.dashboard,label:'대시보드'},
+    {id:'upload',icon:ICONS.upload,label:'명단 업로드'},
+    {id:'attendance',icon:ICONS.attendance,label:'출석 체크'},
+    {id:'completion',icon:ICONS.completion,label:'수료 처리'},
+    {id:'records',icon:ICONS.records,label:'출석부 조회'},
+    {id:'survey',icon:ICONS.survey,label:'설문 관리'},
   ]:[];
 
   const getStats=(tid)=>{
@@ -357,26 +400,59 @@ function App(){
     <div className="flex min-h-screen">
       {globalLoading&&<LoadingOverlay text="데이터 로딩 중..."/>}
       {flash&&<div className="scan-flash" style={{background:flash==='success'?'#22c55e':flash==='error'?'#ef4444':'#eab308'}}/>}
-      <div className="sidebar-wrap w-64 bg-gray-900 text-white flex-shrink-0 flex flex-col" style={{minHeight:'100vh'}}>
-        <div className="p-5 border-b border-gray-700">
-          <div className="font-bold text-sm">🏢 KOSDAQ 연수</div>
-          <div className="text-xs text-gray-500 mt-1">QR 출석 관리 시스템 v5.3</div>
+      <div className="sidebar-wrap" style={{width:240,background:'#fff',borderRight:'1px solid #f1f5f9',flexShrink:0,display:'flex',flexDirection:'column',minHeight:'100vh',fontFamily:'-apple-system,BlinkMacSystemFont,Pretendard,SUIT,"Noto Sans KR",sans-serif'}}>
+        {/* 로고 영역 */}
+        <div style={{padding:'24px 20px',borderBottom:'1px solid #f1f5f9'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:32,height:32,background:'#f04e23',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>
+              <IconSvg d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10" size={18}/>
+            </div>
+            <div>
+              <div style={{fontWeight:800,fontSize:14,color:'#0f172a',letterSpacing:'-0.025em'}}>코스닥협회</div>
+              <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>QR 출석시스템 v5.4</div>
+            </div>
+          </div>
         </div>
+
         {selTraining?(
-          <>
-            <div className="px-5 py-3 text-blue-400 cursor-pointer hover:bg-gray-800 text-sm flex items-center gap-2" onClick={goBack}>← 연수 목록</div>
-            <div className="px-5 py-1 text-xs text-gray-500 font-semibold">{training?.name}</div>
-            {nav.map(n=>(
-              <div key={n.id} className={`px-5 py-3 cursor-pointer text-sm flex items-center gap-2 ${page===n.id?'bg-gray-800 text-white border-l-2 border-blue-500':'text-gray-400 hover:text-white hover:bg-gray-800'}`} onClick={()=>setPage(n.id)}>
-                {n.icon} {n.label}
-              </div>
-            ))}
-          </>
+          <div style={{padding:'16px 12px',display:'flex',flexDirection:'column',gap:4,flex:1}}>
+            {/* 뒤로 + 연수명 */}
+            <div onClick={goBack}
+              style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:10,cursor:'pointer',color:'#64748b',fontSize:12,fontWeight:600,marginBottom:8}}>
+              <IconSvg d={ICONS.back} size={14}/> 연수 목록
+            </div>
+            <div style={{padding:'0 12px 12px',fontSize:11,color:'#94a3b8',fontWeight:600,letterSpacing:'-0.025em',lineHeight:1.4}}>
+              {training?.name}
+            </div>
+            {/* 메뉴 */}
+            {nav.map(n=>{
+              const active=page===n.id;
+              return (
+                <div key={n.id} onClick={()=>setPage(n.id)}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,cursor:'pointer',fontSize:14,fontWeight:600,letterSpacing:'-0.025em',
+                    background:active?'#f04e23':'transparent',
+                    color:active?'#fff':'#475569',
+                    boxShadow:active?'0 1px 2px rgba(240,78,35,0.25)':'none',
+                    transition:'all .15s'}}>
+                  <IconSvg d={n.icon} size={18}/> {n.label}
+                </div>
+              );
+            })}
+          </div>
         ):(
-          <div className="px-5 py-3 bg-gray-800 text-white text-sm flex items-center gap-2">📋 연수 목록</div>
+          <div style={{padding:'16px 12px',flex:1}}>
+            <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,background:'#f04e23',color:'#fff',fontSize:14,fontWeight:600,boxShadow:'0 1px 2px rgba(240,78,35,0.25)'}}>
+              <IconSvg d={ICONS.dashboard} size={18}/> 연수 목록
+            </div>
+          </div>
         )}
-        <div className="mt-auto p-4 border-t border-gray-700">
-          <button className="w-full text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 py-2 px-3 rounded" onClick={()=>{sessionStorage.removeItem('kosdaq_v5_auth');setLoggedIn(false)}}>🔒 로그아웃</button>
+
+        {/* 로그아웃 */}
+        <div style={{padding:16,borderTop:'1px solid #f1f5f9'}}>
+          <button onClick={()=>{sessionStorage.removeItem('kosdaq_v5_auth');setLoggedIn(false)}}
+            style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'transparent',border:'none',borderRadius:10,color:'#64748b',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left'}}>
+            <IconSvg d={ICONS.logout} size={16}/> 로그아웃
+          </button>
         </div>
       </div>
       <div className="mobile-nav bg-white border-b p-2 overflow-x-auto gap-2 fixed top-0 left-0 right-0 z-50">
@@ -1083,8 +1159,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   // 카드 처리: AM→매핑, PM 마지막날→반납+수료
   const processCardMapping=async(rawCardCode)=>{
     if(!cardMappingTarget)return;
-    // 한글자판 → 영문 자동변환
-    const KO_MAP={'ㅁ':'a','ㄴ':'s','ㅇ':'d','ㄹ':'f','ㅎ':'g','ㅗ':'h','ㅓ':'j','ㅏ':'k','ㅣ':'l','ㅋ':'z','ㅌ':'x','ㅊ':'c','ㅍ':'v','ㅠ':'b','ㅜ':'n','ㅡ':'m','ㅂ':'q','ㅈ':'w','ㄷ':'e','ㄱ':'r','ㅅ':'t','ㅛ':'y','ㅕ':'u','ㅑ':'i','ㅐ':'o','ㅔ':'p','ㅃ':'Q','ㅉ':'W','ㄸ':'E','ㄲ':'R','ㅆ':'T','ㅒ':'O','ㅖ':'P'};
+    // v5.4: 한글자판 → 영문 자동변환 (전역 ko2en + KO2EN + JUNG_DECOMP/JONG_DECOMP 사용)
+    // 복합 자모(ㅘ·ㅙ·ㅚ·ㅝ·ㅞ·ㅟ·ㅢ)·복합 종성(ㄳ·ㄵ·ㄶ 등)까지 decomposeKorean이 모두 분해.
     let cardCode=rawCardCode;
     if(/[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(cardCode)){
       cardCode=ko2en(cardCode).toUpperCase();
@@ -1116,11 +1192,11 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       const localAttRate=localAttCount/totalSessions*100;
       if(localSurveyOk&&localAttRate>=80){
         setParticipants(prev=>prev.map(p=>p.id===target.id?{...p,graduated:true}:p));
-        showScanResult('success','🎓',target.name,'🎓 수료 완료! 수고하셨습니다!');
+        showScanResult('success','🎓',target.name,'🎓 수료 완료! (서버 저장 중…)');
       }else{
-        showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료');
+        showScanResult('success','✅',target.name,'카드 반납 + 오후 출석 완료 (서버 저장 중…)');
       }
-      showToast(`💳 ${target.name} 카드 반납 완료`);
+      showToast(`💳 ${target.name} 카드 반납 — 서버 저장 중`);
       // 서버 호출 (재시도 포함)
       const doReturn=async(retry=0)=>{
         try{
@@ -1149,12 +1225,24 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
           }else{
             console.error('[returnCard] 서버 에러:',res.message);
             if(retry<2){console.log('[returnCard] 재시도',retry+1);setTimeout(()=>doReturn(retry+1),2000)}
-            else showToast(`⚠️ ${target.name} 서버 저장 실패: ${res.message}`);
+            else{
+              // v5.4: 최종 실패 시 영속 알림 — 담당자가 놓치지 않도록 모달로 표시
+              showScanResult('error','⚠️',target.name,`서버 저장 실패 (3회 시도) — ${res.message||'다시 시도 필요'}`,0,{
+                label:'수동 재시도',
+                action:()=>doReturn(0)
+              });
+            }
           }
         }catch(e){
           console.error('[returnCard] 네트워크 에러:',e);
           if(retry<2){console.log('[returnCard] 재시도',retry+1);setTimeout(()=>doReturn(retry+1),2000)}
-          else showToast(`⚠️ ${target.name} 서버 연결 실패 — 새로고침 후 재시도`);
+          else{
+            // v5.4: 네트워크 최종 실패 시 영속 알림
+            showScanResult('error','⚠️',target.name,'서버 연결 실패 (3회 시도) — 네트워크 확인 후 재시도',0,{
+              label:'수동 재시도',
+              action:()=>doReturn(0)
+            });
+          }
         }
       };
       doReturn();
@@ -1361,91 +1449,253 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   useEffect(()=>{loadAttendance(training.id,day)},[day]);
 
   return(
-    <div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-        <h1 className="text-2xl font-bold">✅ 출석 체크</h1>
-        <button onClick={toggleFullscreen} style={{padding:'8px 16px',background:isFullscreen?'#dc2626':'#2563eb',color:'#fff',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer'}}>{isFullscreen?'🔙 전체화면 해제':'🖥️ 전체화면'}</button>
-      </div>
-      {/* ── 세션별 안내 배너 (크게) ── */}
-      {session==='AM'&&<div style={{background:'#fff',border:'3px solid #2563eb',borderRadius:20,overflow:'hidden',maxWidth:480,margin:'0 auto 16px',textAlign:'center'}}>
-        <div style={{background:'linear-gradient(135deg,#1e40af,#3b82f6)',padding:'10px 16px',color:'#fff'}}>
-          <div style={{fontSize:18,fontWeight:800,letterSpacing:1}}>⚡ 아래의 순서대로 스캔해주세요 ⚡</div>
-        </div>
-        <div style={{padding:'28px 20px'}}>
-          <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:16,marginBottom:20}}>
-            <div style={{textAlign:'center'}}>
-              <div style={{display:'inline-block',background:'#1e40af',color:'#fff',fontSize:21,fontWeight:800,width:42,height:42,lineHeight:'42px',borderRadius:'50%',marginBottom:8}}>1</div>
-              <div style={{width:143,height:143,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:68,background:'#dbeafe',border:'5px solid #3b82f6',margin:'0 auto 12px'}}>📱</div>
-              <div style={{fontSize:21,fontWeight:800,color:'#1f2937'}}>핸드폰 QR</div>
-              <div style={{fontSize:14,color:'#6b7280',marginTop:4}}>참가자 본인 QR 먼저!</div>
-            </div>
-            <div style={{fontSize:52,color:'#6b7280',fontWeight:900,marginTop:-20}}>➜</div>
-            <div style={{textAlign:'center'}}>
-              <div style={{display:'inline-block',background:'#16a34a',color:'#fff',fontSize:21,fontWeight:800,width:42,height:42,lineHeight:'42px',borderRadius:'50%',marginBottom:8}}>2</div>
-              <div style={{width:143,height:143,borderRadius:'50%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:68,background:'#dcfce7',border:'5px solid #16a34a',margin:'0 auto 12px'}}>💳</div>
-              <div style={{fontSize:21,fontWeight:800,color:'#1f2937'}}>출입카드</div>
-              <div style={{fontSize:14,color:'#6b7280',marginTop:4}}>배부받은 카드 스캔</div>
-            </div>
+    <div style={{background:'#e5e5ea',minHeight:'100vh',padding:24,fontFamily:'-apple-system,BlinkMacSystemFont,Pretendard,SUIT,"Noto Sans KR",sans-serif',display:'flex',flexDirection:'column'}}>
+      {/* ── 상단 어드민 바 ── */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,background:'#fff',padding:16,borderRadius:24,boxShadow:'0 1px 2px rgba(0,0,0,0.04)',border:'1px solid #f1f5f9'}}>
+        <div style={{display:'flex',alignItems:'center',gap:16}}>
+          <h1 style={{fontSize:20,fontWeight:700,color:'#0f172a',letterSpacing:'-0.025em',marginLeft:8}}>출석 스캐너 모드</h1>
+          <div style={{height:24,width:1,background:'#e2e8f0'}}/>
+          {/* 일차 토글 */}
+          <div style={{display:'flex',alignItems:'center',background:'#f5f5f7',borderRadius:12,padding:4}}>
+            {Array.from({length:training.days},(_,i)=>i+1).map(d=>(
+              <button key={d} onClick={()=>setDay(d)}
+                style={{padding:'6px 16px',borderRadius:8,fontSize:14,fontWeight:600,border:'none',cursor:'pointer',transition:'all .15s',
+                  background:day===d?'#fff':'transparent',
+                  color:day===d?'#0f172a':'#64748b',
+                  boxShadow:day===d?'0 1px 2px rgba(0,0,0,0.04)':'none'}}>{d}일차</button>
+            ))}
           </div>
-          <div style={{background:'#f0fdf4',border:'2px solid #86efac',borderRadius:12,padding:16,fontSize:17,fontWeight:700,color:'#166534',marginBottom:14}}>✅ 출석 완료 + 카드 배부</div>
-          <div style={{fontSize:15,color:'#dc2626',fontWeight:700}}>❌ 카드를 먼저 찍으면 출석이 안 됩니다!</div>
-        </div>
-      </div>}
-      {!isLastDay&&session==='PM'&&<div className="bg-blue-100 border-2 border-blue-500 rounded-2xl p-6 mb-4 text-center shadow-md">
-        <div className="text-5xl mb-3">🌙</div>
-        <div className="text-2xl font-bold text-blue-800 mb-3">오후 퇴실</div>
-        <div className="max-w-xs mx-auto mb-3">
-          <div className="bg-white rounded-xl p-4 shadow-sm"><div className="text-4xl mb-2">💳</div><div className="text-lg font-bold text-blue-700">출입카드만 스캔!</div><div className="text-sm text-gray-600 mt-1">카드 반납 + 오후 출석 자동 처리</div></div>
-        </div>
-        <div className="text-sm text-blue-600">📱 핸드폰 QR은 필요 없습니다</div>
-      </div>}
-      {isLastDay&&session==='PM'&&<div className="bg-red-50 border-3 border-red-500 rounded-2xl p-6 mb-4 text-center shadow-lg animate-pulse-slow">
-        <div className="text-5xl mb-3">🎓</div>
-        <div className="text-2xl font-bold text-red-800 mb-3">⚠️ 마지막 날 — 수료 처리 ⚠️</div>
-        <div className="bg-white rounded-xl p-4 shadow-sm mb-3">
-          <div className="text-lg font-bold text-red-700 mb-2">반드시 두 가지 모두 스캔하세요!</div>
-          <div className="grid grid-cols-3 gap-2 max-w-md mx-auto">
-            <div className="bg-red-50 rounded-xl p-3"><div className="text-3xl mb-1">📱</div><div className="text-sm font-bold text-red-700">STEP 1</div><div className="text-xs text-gray-700">참가자 QR<br/>(핸드폰)</div></div>
-            <div className="flex items-center justify-center text-2xl text-red-600">→</div>
-            <div className="bg-red-50 rounded-xl p-3"><div className="text-3xl mb-1">💳</div><div className="text-sm font-bold text-red-700">STEP 2</div><div className="text-xs text-gray-700">출입카드<br/>스캔</div></div>
+          {/* 세션 토글 */}
+          <div style={{display:'flex',alignItems:'center',background:'#f5f5f7',borderRadius:12,padding:4,marginLeft:8}}>
+            <button onClick={()=>setSess('AM')}
+              style={{padding:'6px 16px',borderRadius:8,fontSize:14,fontWeight:600,border:'none',cursor:'pointer',transition:'all .15s',
+                background:session==='AM'?'#f04e23':'transparent',
+                color:session==='AM'?'#fff':'#64748b',
+                boxShadow:session==='AM'?'0 1px 2px rgba(0,0,0,0.04)':'none'}}>오전 입실</button>
+            <button onClick={()=>setSess('PM')}
+              style={{padding:'6px 16px',borderRadius:8,fontSize:14,fontWeight:600,border:'none',cursor:'pointer',transition:'all .15s',
+                background:session==='PM'?'#f58220':'transparent',
+                color:session==='PM'?'#fff':'#64748b',
+                boxShadow:session==='PM'?'0 1px 2px rgba(0,0,0,0.04)':'none'}}>오후 퇴실</button>
           </div>
         </div>
-        <div className="text-base text-red-700 font-bold">📋 설문조사 완료 후 QR을 보여주세요!</div>
-        <div className="text-sm text-red-600 mt-2">핸드폰 QR + 출입카드 순서로 스캔</div>
-      </div>}
-      <div className="bg-white rounded-xl p-4 mb-4 shadow-sm">
-        <div className="flex flex-wrap gap-4 items-center">
-          <div>
-            <label className="text-xs font-semibold block mb-1">일차</label>
-            <div className="flex gap-2">{Array.from({length:training.days},(_,i)=>i+1).map(d=><button key={d} className={`px-4 py-2 rounded-lg font-semibold text-sm ${day===d?'bg-blue-600 text-white':'border'}`} onClick={()=>setDay(d)}>Day {d}</button>)}</div>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{textAlign:'right'}}>
+            <div style={{fontSize:11,color:'#94a3b8',fontWeight:500}}>출석률</div>
+            <div style={{fontSize:20,fontWeight:800,color:'#f04e23',letterSpacing:'-0.025em'}}>{present.length}<span style={{color:'#cbd5e1',fontSize:14,fontWeight:600}}> / {participants.length}</span></div>
           </div>
-          <div>
-            <label className="text-xs font-semibold block mb-1">시간대</label>
-            <div className="flex gap-2">
-              <button className={`px-4 py-2 rounded-lg font-semibold text-sm ${session==='AM'?'bg-blue-600 text-white':'border'}`} onClick={()=>setSess('AM')}>☀️ 오전</button>
-              <button className={`px-4 py-2 rounded-lg font-semibold text-sm ${session==='PM'?'bg-blue-600 text-white':'border'}`} onClick={()=>setSess('PM')}>🌙 오후</button>
-            </div>
-          </div>
-          <div className="ml-auto text-center">
-            <div className="text-xs text-gray-500">출석률</div>
-            <div className="text-3xl font-bold text-blue-600">{present.length}/{participants.length}</div>
-          </div>
+          <button onClick={toggleFullscreen}
+            style={{display:'inline-flex',alignItems:'center',gap:8,padding:'8px 16px',background:'#fff',border:'1px solid #e2e8f0',color:'#64748b',borderRadius:12,fontSize:13,fontWeight:600,cursor:'pointer'}}>
+            {isFullscreen?'🔙 전체화면 해제':'🖥️ 전체화면'}
+          </button>
         </div>
       </div>
-      <div className="grid md:grid-cols-2 gap-4">
-        <div>
-          <div className="bg-white rounded-xl p-5 shadow-sm mb-4">
-            <h3 className="text-sm font-semibold text-gray-500 mb-3">📱 QR 스캔</h3>
-            <input ref={inputRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=10){scanTimerRef.current=setTimeout(()=>{if(!scanning){processQR(trimmed);setQr('')}},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v&&!scanning){if(scanTimerRef.current)clearTimeout(scanTimerRef.current);processQR(v);setQr('')}}}} placeholder="카드 QR 또는 참가자 QR 스캔..." autoFocus/>
-            <div className="flex gap-2 mt-3">
-              <button className="px-3 py-1 border rounded text-xs" onClick={()=>setShowManual(true)}>🔍 수동 검색</button>
-              <button className="px-3 py-1 border rounded text-xs" onClick={()=>loadAttendance(training.id,day).then(()=>showToast('🔄 새로고침'))}>🔄 새로고침</button>
+
+      {/* ── 메인 그리드 (좌 3 : 우 1) ── */}
+      <div style={{display:'grid',gridTemplateColumns:'3fr 1fr',gap:24,alignItems:'stretch',flex:1,minHeight:0}}>
+        {/* ── 좌측 ── */}
+        <div style={{display:'flex',flexDirection:'column',gap:24,minHeight:0}}>
+
+          {/* 메인 안내 카드 — 남는 공간 다 차지 (스캐너 카드만 고정) */}
+          <div style={{flex:1,background:'#fff',borderRadius:32,boxShadow:'0 4px 30px rgba(0,0,0,0.04)',padding:48,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',position:'relative',overflow:'hidden',minHeight:560}}>
+            {/* 그라데이션 상단 border */}
+            <div style={{position:'absolute',top:0,left:0,right:0,height:12,background:'linear-gradient(90deg,#f04e23,#f58220,#f5f5f7)'}}/>
+
+            {/* Day / 세션 칩 */}
+            <div style={{position:'absolute',top:32,left:32}}>
+              <span style={{display:'inline-flex',alignItems:'center',justifyContent:'center',padding:'10px 20px',background:'#f5f5f7',color:'#334155',borderRadius:16,fontWeight:700,fontSize:18,letterSpacing:'-0.025em'}}>
+                Day {day} / {session==='AM'?'오전 (AM)':'오후 (PM)'}
+              </span>
+            </div>
+
+            {/* 세션별 안내 콘텐츠 (lucide-style 라인 아이콘) */}
+            {session==='AM'&&(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',gap:40}}>
+                <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:40,color:'#f04e23'}}>
+                  <svg width={200} height={200} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                  <span style={{fontSize:80,color:'#cbd5e1',fontWeight:300}}>+</span>
+                  <svg width={200} height={200} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:16}}>
+                  <h2 style={{fontSize:48,fontWeight:800,color:'#0f172a',letterSpacing:'-0.025em',lineHeight:1.15,margin:0}}>
+                    <span style={{color:'#f04e23'}}>핸드폰 QR</span> 화면을 먼저 찍고<br/>이어서 <span style={{color:'#f04e23'}}>출입 카드</span>를 찍어주세요
+                  </h2>
+                  <p style={{fontSize:22,color:'#64748b',fontWeight:500,margin:0}}>오전 입실 출석체크가 완료됩니다.</p>
+                </div>
+              </div>
+            )}
+            {!isLastDay&&session==='PM'&&(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',gap:40}}>
+                <div style={{color:'#f58220'}}>
+                  <svg width={240} height={240} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:16}}>
+                  <h2 style={{fontSize:48,fontWeight:800,color:'#0f172a',letterSpacing:'-0.025em',lineHeight:1.15,margin:0}}>
+                    오후 퇴실 시에는<br/><span style={{color:'#f58220'}}>출입 카드</span>만 찍고 퇴실하시면 됩니다
+                  </h2>
+                  <p style={{fontSize:22,color:'#64748b',fontWeight:500,margin:0}}>핸드폰 QR은 필요하지 않습니다.</p>
+                </div>
+              </div>
+            )}
+            {isLastDay&&session==='PM'&&(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',textAlign:'center',gap:40}}>
+                <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:32}}>
+                  <div style={{background:'#fff0ed',padding:32,borderRadius:'50%',color:'#f04e23',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <svg width={120} height={120} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2v0z"/><path d="M9 14l2 2 4-4"/></svg>
+                  </div>
+                  <span style={{fontSize:56,color:'#cbd5e1',fontWeight:300}}>→</span>
+                  <div style={{background:'#f8fafc',padding:32,borderRadius:'50%',color:'#334155',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <svg width={110} height={110} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                  </div>
+                  <span style={{fontSize:56,color:'#cbd5e1',fontWeight:300}}>+</span>
+                  <div style={{background:'#f8fafc',padding:32,borderRadius:'50%',color:'#334155',display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <svg width={110} height={110} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+                  </div>
+                </div>
+                <div style={{display:'flex',flexDirection:'column',gap:20}}>
+                  <h2 style={{fontSize:48,fontWeight:800,color:'#0f172a',letterSpacing:'-0.025em',lineHeight:1.15,margin:0}}>
+                    <span style={{color:'#f04e23'}}>설문조사 완료 후</span> 생성된 핸드폰 QR과<br/>출입 카드를 모두 찍어야 수료됩니다
+                  </h2>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 스캐너 입력 영역 */}
+          <div style={{background:'#fff',borderRadius:24,boxShadow:'0 4px 20px rgba(0,0,0,0.03)',padding:24,display:'flex',alignItems:'center',gap:24,flexShrink:0}}>
+            <div style={{width:48,height:48,borderRadius:16,background:'#f5f5f7',display:'flex',alignItems:'center',justifyContent:'center',color:'#94a3b8',fontSize:24,flexShrink:0}}>📲</div>
+            <div style={{flex:1}}>
+              <p style={{fontSize:14,fontWeight:600,color:'#64748b',marginBottom:8,letterSpacing:'-0.025em',margin:0}}>스캐너 대기 중...</p>
+              <input ref={inputRef} type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false"
+                style={{height:48,fontSize:18,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',background:'#f5f5f7',border:'none',borderRadius:12,width:'100%',padding:'0 16px',outline:'none'}}
+                className="scanner-input"
+                value={qrInput}
+                onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=10){scanTimerRef.current=setTimeout(()=>{if(!scanning){processQR(trimmed);setQr('')}},400)}}}
+                onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v&&!scanning){if(scanTimerRef.current)clearTimeout(scanTimerRef.current);processQR(v);setQr('')}}}}
+                placeholder="바코드 스캐너로 QR 또는 카드를 스캔하세요"
+                autoFocus/>
+            </div>
+            <div style={{display:'flex',gap:8,flexShrink:0}}>
+              <button onClick={()=>setShowManual(true)} style={{padding:'8px 12px',background:'#f5f5f7',border:'none',borderRadius:10,fontSize:12,fontWeight:600,color:'#64748b',cursor:'pointer'}}>🔍 수동검색</button>
+              <button onClick={()=>loadAttendance(training.id,day).then(()=>showToast('🔄 새로고침'))} style={{padding:'8px 12px',background:'#f5f5f7',border:'none',borderRadius:10,fontSize:12,fontWeight:600,color:'#64748b',cursor:'pointer'}}>🔄</button>
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl p-5 shadow-sm">
-          <h3 className="text-sm font-semibold text-gray-500 mb-3">실시간 현황 ({day}일차 {session==='AM'?'오전':'오후'})</h3>
-          <div className="max-h-96 overflow-y-auto">
+
+        {/* ── 우측: 실시간 현황 (Figma Make 카드 톤 + 기존 기능 100%) ── */}
+        <div style={{background:'#fff',borderRadius:32,boxShadow:'0 4px 30px rgba(0,0,0,0.04)',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          <div style={{padding:24,borderBottom:'1px solid #f1f5f9',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <h3 style={{fontWeight:700,color:'#0f172a',letterSpacing:'-0.025em',fontSize:18,margin:0}}>실시간 현황</h3>
+            <span style={{background:'#e5f5eb',color:'#008a3c',padding:'4px 12px',borderRadius:9999,fontSize:12,fontWeight:700,letterSpacing:'0.025em'}}>{present.length}명</span>
+          </div>
+          <div style={{padding:12,flex:1,overflowY:'auto',maxHeight:680,display:'flex',flexDirection:'column',gap:8}}>
+            {participants.length===0&&(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:'40px 0',color:'#94a3b8',gap:12}}>
+                <div style={{width:48,height:48,background:'#f8fafc',borderRadius:16,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                  <svg width={20} height={20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{color:'#cbd5e1'}}><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 7h.01M7 12h.01M7 17h.01M12 7h.01M12 12h.01M12 17h.01M17 7h.01M17 12h.01M17 17h.01"/></svg>
+                </div>
+                <p style={{fontSize:14,fontWeight:500,margin:0}}>참가자 등록 대기중</p>
+              </div>
+            )}
+            {[...participants].sort((a,b)=>{
+              const aa=present.find(x=>x.participantId===a.id);
+              const bb=present.find(x=>x.participantId===b.id);
+              if(aa&&bb)return new Date(bb.checkedAt)-new Date(aa.checkedAt);
+              if(aa)return -1; if(bb)return 1; return 0;
+            }).map(p=>{
+              const att=present.find(a=>a.participantId===p.id);
+              const mappedCard=cards.find(c=>c.participantId===p.id&&c.status==='mapped');
+              const returnedCard=cards.find(c=>c.participantId===p.id&&c.status==='returned');
+              const cardDisplay=mappedCard?{label:mappedCard.qrCode.replace('KOSDAQ-C-','C-'),status:'mapped'}
+                :returnedCard?{label:returnedCard.qrCode.replace('KOSDAQ-C-','C-'),status:'returned'}
+                :{label:'',status:'none'};
+              const handleManualAtt=async()=>{
+                if(att){showToast('ℹ️ 이미 출석 처리됨');return}
+                if(!confirm(`${p.name}님을 ${day}일차 ${session} 수동 출석 처리하시겠습니까?`))return;
+                const optAtt={id:'manual_'+Date.now(),participantId:p.id,trainingId:training.id,day,session,checkedAt:new Date().toISOString(),method:'manual',late:false};
+                setAttendance(prev=>[...prev,optAtt]);
+                try{
+                  const res=await apiPost({action:'scan',qrCode:p.qrCode,day,session,method:'manual'});
+                  if(res.status!=='ok'){setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));showToast(`❌ ${res.message}`)}
+                  else showToast(`✅ ${p.name} 수동 출석 완료`);
+                }catch(e){showToast('⚠️ 오프라인 저장됨')}
+              };
+              const handleManualAssign=async()=>{
+                const cardNum=prompt(`${p.name}님에게 배부할 카드 번호 입력:\n(예: 050, C-050, KOSDAQ-C-050)`);
+                if(!cardNum)return;
+                let cardId=cardNum.trim().toUpperCase();
+                if(/^\d+$/.test(cardId))cardId='KOSDAQ-C-'+cardId;
+                else if(cardId.startsWith('C-'))cardId='KOSDAQ-'+cardId;
+                else if(!cardId.startsWith('KOSDAQ-C-'))cardId='KOSDAQ-C-'+cardId;
+                showToast(`⏳ ${p.name} 카드 ${cardId} 배부 중...`);
+                try{
+                  const res=await apiPost({action:'mapCard',cardId,participantId:p.id,day:String(day),session});
+                  if(res.status==='ok'){
+                    showToast(`✅ ${p.name} → ${cardId} 배부 완료`);
+                    setCards(prev=>[...prev,{id:'optC_'+Date.now(),qrCode:cardId,status:'mapped',participantId:p.id,participantName:p.name}]);
+                  }else showToast(`❌ ${res.message}`);
+                }catch(e){showToast('❌ 서버 연결 실패')}
+              };
+              const handleManualReturn=async()=>{
+                if(!mappedCard){showToast('⚠️ 매핑된 카드가 없습니다');return}
+                if(!confirm(`${p.name}님의 카드(${cardDisplay.label})를 수동 반납 처리하시겠습니까?`))return;
+                showToast(`⏳ ${p.name} 카드 반납 중...`);
+                try{
+                  const res=await apiPost({action:'returnCard',cardId:mappedCard.qrCode,day:String(day)});
+                  if(res.status==='ok'){
+                    showToast(`✅ ${p.name} 카드 반납 완료`);
+                    if(res.data?.PM출석){setAttendance(prev=>[...prev,{id:res.data.PM출석.id||'srv_'+Date.now(),participantId:p.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'manual',late:false}])}
+                    setCards(prev=>prev.map(c2=>c2.id===mappedCard.id?{...c2,status:'returned'}:c2));
+                  }else{showToast(`❌ 반납 실패: ${res.message}`)}
+                }catch(e){showToast('❌ 서버 연결 실패')}
+              };
+              return (
+                <div key={p.id} style={{padding:14,borderRadius:16,background:'#f5f5f7',display:'flex',flexDirection:'column',gap:10,transition:'background .15s'}}>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+                    <div style={{display:'flex',alignItems:'center',gap:10,minWidth:0,flex:1}}>
+                      <div style={{width:36,height:36,borderRadius:12,background:'#fff',boxShadow:'0 1px 2px rgba(0,0,0,0.04)',color:'#334155',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:800,fontSize:14,flexShrink:0}}>{p.name?.[0]||'?'}</div>
+                      <div style={{minWidth:0}}>
+                        <p style={{fontWeight:800,color:'#0f172a',fontSize:13,letterSpacing:'-0.025em',margin:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</p>
+                        <p style={{fontSize:10,color:'#94a3b8',margin:0,marginTop:2,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.company}</p>
+                      </div>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      {att?(
+                        <>
+                          <span style={{color:'#008a3c',fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',gap:4}}>
+                            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg> 확인
+                          </span>
+                          <p style={{fontSize:10,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',color:'#94a3b8',margin:0,marginTop:2}}>{new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}</p>
+                        </>
+                      ):(
+                        <span style={{color:'#cbd5e1',fontSize:11,fontWeight:600}}>대기</span>
+                      )}
+                    </div>
+                  </div>
+                  {/* 카드 뱃지 + 관리 버튼 */}
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:6,fontSize:10}}>
+                    <div>
+                      {cardDisplay.status==='returned'&&<span style={{background:'#f3e8ff',color:'#7e22ce',padding:'3px 8px',borderRadius:9999,fontWeight:700,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>✅ {cardDisplay.label}</span>}
+                      {cardDisplay.status==='mapped'&&<span style={{background:'#fff0ed',color:'#f04e23',padding:'3px 8px',borderRadius:9999,fontWeight:700,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{cardDisplay.label}</span>}
+                      {cardDisplay.status==='none'&&<span style={{color:'#cbd5e1'}}>카드 없음</span>}
+                    </div>
+                    <div style={{display:'flex',gap:4}}>
+                      {!att&&<button onClick={handleManualAtt} title="수동 출석" style={{padding:'3px 8px',background:'#e5f5eb',color:'#008a3c',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>출석</button>}
+                      {!mappedCard&&!returnedCard&&<button onClick={handleManualAssign} title="카드 배부" style={{padding:'3px 8px',background:'#fff0ed',color:'#f04e23',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>배부</button>}
+                      {mappedCard&&<button onClick={handleManualReturn} title="카드 반납" style={{padding:'3px 8px',background:'#fff7ed',color:'#f58220',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>반납</button>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 기존 유지: 수동검색·카드매핑 모달 ── */}
+      {false&&<div style={{display:'none'}}>
+        {/* legacy table preserved as dead code for reference only */}
+        <div className="max-h-96 overflow-y-auto">
             <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 bg-gray-50"><th className="text-left p-2">이름</th><th className="text-left p-2">소속</th><th className="p-2">카드</th><th className="p-2">상태</th><th className="p-2">시각</th><th className="p-2">관리</th></tr></thead>
               <tbody>{participants.map(p=>{
                 const att=present.find(a=>a.participantId===p.id);
@@ -1509,8 +1759,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
               })}</tbody>
             </table>
           </div>
-        </div>
-      </div>
+        </div>}
       {showManual&&<ManualSearch participants={participants} title="수동 출석" onClose={()=>setShowManual(false)} onSelect={p=>{processAttendance(p,'manual');setShowManual(false)}}/>}
       {cardMappingTarget&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setCardMappingTarget(null)}}>
         <div className="bg-white rounded-2xl p-8 shadow-2xl text-center max-w-md mx-4 relative" onClick={e=>e.stopPropagation()}>
