@@ -837,23 +837,53 @@ function TrainingDash({training,participants,cards,attendanceRecords,showToast,g
    ═══════════════════════════════════════════ */
 function Upload({training,participants,showToast,loadParticipants}){
   const [showQR,setShowQR]=useState(false);
+  const [showAddForm,setShowAddForm]=useState(false);
+  const [adding,setAdding]=useState(false);
+  const [newP,setNewP]=useState({name:'',company:'',position:'',phone:'',email:''});
   const [uploading,setUploading]=useState(false);
   const [selected,setSelected]=useState(new Set());
   const [deleting,setDeleting]=useState(false);
+  const [rowDeleting,setRowDeleting]=useState(null); // 행별 삭제 중인 id
+  const [singleQR,setSingleQR]=useState(null); // 개별 QR 큰 모달 대상
   const fileRef=useRef();
+
+  // QR 링크 복사
+  const QR_BASE='https://edukosdaq-web.github.io/qr-attendance/qr.html?token=';
+  const copyQrLink=async(p)=>{
+    const link=QR_BASE+encodeURIComponent(p.qrCode);
+    try{
+      await navigator.clipboard.writeText(link);
+      showToast(`📋 ${p.name} QR 링크 복사 완료 — 카톡/문자에 붙여넣으세요`);
+    }catch(e){
+      // fallback: temp textarea
+      const ta=document.createElement('textarea');ta.value=link;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);
+      showToast(`📋 ${p.name} QR 링크 복사 완료`);
+    }
+  };
 
   const toggleSelect=(id)=>{setSelected(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s})};
   const toggleAll=()=>{if(selected.size===participants.length)setSelected(new Set());else setSelected(new Set(participants.map(p=>p.id)))};
   const deleteSelected=async()=>{
     if(!selected.size)return;
-    if(!confirm(`${selected.size}명을 삭제하시겠습니까?`))return;
+    if(!confirm(`${selected.size}명을 삭제하시겠습니까? (구글 시트에서도 자동 제거됩니다)`))return;
     setDeleting(true);
     try{
       const res=await apiPost({action:'deleteParticipants',ids:[...selected]});
-      if(res.status==='ok'){showToast(`🗑️ ${selected.size}명 삭제 완료`);setSelected(new Set());await loadParticipants(training.id)}
+      if(res.status==='ok'){showToast(`🗑️ ${selected.size}명 삭제 완료 (시트 동기화)`);setSelected(new Set());await loadParticipants(training.id)}
       else showToast(`❌ ${res.message||'삭제 실패'}`,'err');
     }catch(e){showToast('❌ 삭제 실패: '+e.message,'err')}
     finally{setDeleting(false)}
+  };
+  // 행별 단일 삭제
+  const deleteRow=async(p)=>{
+    if(!confirm(`${p.name}님을 삭제하시겠습니까? (구글 시트에서도 자동 제거)`))return;
+    setRowDeleting(p.id);
+    try{
+      const res=await apiPost({action:'deleteParticipants',ids:[p.id]});
+      if(res.status==='ok'){showToast(`🗑️ ${p.name} 삭제 완료`);await loadParticipants(training.id)}
+      else showToast(`❌ ${res.message||'삭제 실패'}`,'err');
+    }catch(e){showToast('❌ 삭제 실패: '+e.message,'err')}
+    finally{setRowDeleting(null)}
   };
 
   const handleExcel=async(e)=>{
@@ -902,21 +932,22 @@ function Upload({training,participants,showToast,loadParticipants}){
   };
 
   const addManual=async()=>{
-    const name=prompt('참가자 이름');if(!name)return;
-    const company=prompt('회사')||'';
-    const position=prompt('직급')||'';
-    const phone=prompt('연락처')||'';
+    if(!newP.name.trim()){showToast('❌ 이름은 필수입니다','err');return}
+    setAdding(true);
     try{
       const res=await apiPost({
         action:'uploadParticipants',
         tid:training.id,
-        participants:[{이름:name.trim(),회사:company.trim(),직급:position.trim(),연락처:phone.trim(),이메일:'',담당자:''}],
+        participants:[{이름:newP.name.trim(),회사:newP.company.trim(),직급:newP.position.trim(),연락처:newP.phone.trim().replace(/-/g,''),이메일:newP.email.trim(),담당자:'연수팀'}],
       });
       if(res.status==='ok'){
-        showToast(`✅ ${name} 등록`);
+        showToast(`✅ ${newP.name} 등록 + QR 자동 발급 + 시트 동기화`);
+        setNewP({name:'',company:'',position:'',phone:'',email:''});
+        setShowAddForm(false);
         await loadParticipants(training.id);
       }else showToast(`❌ ${res.message||'등록 실패'}`,'err');
-    }catch(e){showToast('❌ 등록 실패','err')}
+    }catch(e){showToast('❌ 등록 실패: '+e.message,'err')}
+    finally{setAdding(false)}
   };
 
   return(
@@ -936,7 +967,7 @@ function Upload({training,participants,showToast,loadParticipants}){
       <div className="flex flex-wrap gap-3 items-center justify-between mb-4">
         <div className="font-semibold">등록된 참가자: {participants.length}명</div>
         <div className="flex gap-2">
-          <button className="px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-semibold" onClick={addManual}>➕ 수동 추가</button>
+          <button style={{background:'#f04e23'}} className="px-4 py-2 text-white rounded-lg text-sm font-semibold hover:opacity-90" onClick={()=>setShowAddForm(true)}>➕ 수동 추가</button>
           {selected.size>0&&<button className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-semibold" onClick={deleteSelected} disabled={deleting}>{deleting?'삭제 중...':` 🗑️ ${selected.size}명 삭제`}</button>}
           {participants.length>0&&<button className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-semibold" onClick={()=>{
             const QR_BASE='https://edukosdaq-web.github.io/qr-attendance/qr.html?token=';
@@ -949,15 +980,77 @@ function Upload({training,participants,showToast,loadParticipants}){
           <button className="px-4 py-2 border rounded-lg text-sm font-semibold hover:bg-gray-50" onClick={()=>loadParticipants(training.id).then(()=>showToast('🔄 새로고침'))}>🔄</button>
         </div>
       </div>
+
+      {/* 인라인 추가 폼 */}
+      {showAddForm&&(
+        <div className="bg-white rounded-xl p-5 mb-4 shadow-sm" style={{border:'2px solid #f04e23'}}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-bold" style={{color:'#0f172a'}}>참가자 한 명 추가 (QR 자동 발급 + 구글 시트 자동 동기화)</h3>
+            <button className="text-gray-400 hover:text-gray-600 text-xl" onClick={()=>{setShowAddForm(false);setNewP({name:'',company:'',position:'',phone:'',email:''})}}>✕</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <input type="text" placeholder="이름 *" value={newP.name} onChange={e=>setNewP({...newP,name:e.target.value})} className="px-3 py-2 border rounded-lg text-sm" style={{borderColor:'#e2e8f0'}}/>
+            <input type="text" placeholder="회사" value={newP.company} onChange={e=>setNewP({...newP,company:e.target.value})} className="px-3 py-2 border rounded-lg text-sm" style={{borderColor:'#e2e8f0'}}/>
+            <input type="text" placeholder="직급" value={newP.position} onChange={e=>setNewP({...newP,position:e.target.value})} className="px-3 py-2 border rounded-lg text-sm" style={{borderColor:'#e2e8f0'}}/>
+            <input type="text" placeholder="연락처 (예: 01012345678)" value={newP.phone} onChange={e=>setNewP({...newP,phone:e.target.value})} className="px-3 py-2 border rounded-lg text-sm" style={{borderColor:'#e2e8f0'}}/>
+            <input type="email" placeholder="이메일" value={newP.email} onChange={e=>setNewP({...newP,email:e.target.value})} className="px-3 py-2 border rounded-lg text-sm" style={{borderColor:'#e2e8f0'}}/>
+          </div>
+          <div className="mt-3 flex justify-end gap-2">
+            <button onClick={()=>{setShowAddForm(false);setNewP({name:'',company:'',position:'',phone:'',email:''})}} className="px-4 py-2 text-sm font-semibold rounded-lg border hover:bg-gray-50">취소</button>
+            <button onClick={addManual} disabled={adding||!newP.name.trim()} style={{background:adding||!newP.name.trim()?'#cbd5e1':'#f04e23'}} className="px-4 py-2 text-white text-sm font-semibold rounded-lg disabled:cursor-not-allowed">
+              {adding?'등록 중...':'✅ 등록'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {participants.length>0&&<div className="bg-white rounded-xl shadow-sm overflow-x-auto">
-        <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 uppercase bg-gray-50"><th className="p-3 w-10"><input type="checkbox" checked={selected.size===participants.length&&participants.length>0} onChange={toggleAll}/></th><th className="text-left p-3">#</th><th className="text-left p-3">이름</th><th className="text-left p-3">회사</th><th className="text-left p-3">직급</th><th className="text-left p-3">연락처</th><th className="text-left p-3">QR 토큰</th></tr></thead>
+        <table className="w-full text-sm"><thead><tr className="text-xs text-gray-500 uppercase bg-gray-50"><th className="p-3 w-10"><input type="checkbox" checked={selected.size===participants.length&&participants.length>0} onChange={toggleAll}/></th><th className="text-left p-3">#</th><th className="text-left p-3">이름</th><th className="text-left p-3">회사</th><th className="text-left p-3">직급</th><th className="text-left p-3">연락처</th><th className="text-left p-3">QR 토큰</th><th className="p-3 w-36 text-center">즉시 전달</th><th className="p-3 w-16 text-center">삭제</th></tr></thead>
           <tbody>{participants.map((p,i)=>(
             <tr key={p.id} className={`border-t hover:bg-gray-50 ${selected.has(p.id)?'bg-red-50':''}`}><td className="p-3 text-center"><input type="checkbox" checked={selected.has(p.id)} onChange={()=>toggleSelect(p.id)}/></td><td className="p-3">{i+1}</td><td className="p-3 font-semibold">{p.name}</td><td className="p-3">{p.company}</td><td className="p-3">{p.position}</td><td className="p-3">{p.phone}</td>
-              <td className="p-3"><code className="text-xs bg-gray-100 px-2 py-1 rounded">{p.qrCode}</code></td></tr>
+              <td className="p-3"><code className="text-xs bg-gray-100 px-2 py-1 rounded">{p.qrCode}</code></td>
+              <td className="p-3 text-center">
+                <div className="flex gap-1 justify-center">
+                  <button onClick={()=>setSingleQR(p)} title="QR 화면 띄우기 (캡처해서 카톡 전달)" style={{background:'#fff0ed',color:'#f04e23'}} className="px-2 py-1 rounded text-xs font-semibold hover:opacity-80">📱 QR</button>
+                  <button onClick={()=>copyQrLink(p)} title="QR 링크 복사 → 카톡/문자에 붙여넣기" style={{background:'#f5f5f7',color:'#475569'}} className="px-2 py-1 rounded text-xs font-semibold hover:opacity-80">📋 링크</button>
+                </div>
+              </td>
+              <td className="p-3 text-center"><button onClick={()=>deleteRow(p)} disabled={rowDeleting===p.id} title="이 참가자만 삭제" style={{background:rowDeleting===p.id?'#fecaca':'#fee2e2',color:'#b91c1c'}} className="px-2 py-1 rounded text-xs font-semibold hover:opacity-80">{rowDeleting===p.id?'⏳':'✕'}</button></td>
+            </tr>
           ))}</tbody>
         </table>
       </div>}
       {showQR&&<QRModal participants={participants} onClose={()=>setShowQR(false)}/>}
+      {singleQR&&<SingleQRModal data={singleQR} onClose={()=>setSingleQR(null)} onCopy={()=>copyQrLink(singleQR)}/>}
+    </div>
+  );
+}
+
+// 개별 참가자 QR 큰 모달 — 박성민이 핸드폰으로 캡처해서 카톡/문자 즉시 전달용
+function SingleQRModal({data,onClose,onCopy}){
+  const ref=useRef();
+  const QR_BASE='https://edukosdaq-web.github.io/qr-attendance/qr.html?token=';
+  const link=QR_BASE+encodeURIComponent(data.qrCode);
+  useEffect(()=>{if(ref.current&&window.QRCode)QRCode.toCanvas(ref.current,link,{width:280,margin:2}).catch(()=>{});},[data.qrCode]);
+  return(
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl p-8 shadow-2xl text-center max-w-md w-full relative" onClick={e=>e.stopPropagation()}>
+        <button className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 text-2xl" onClick={onClose}>✕</button>
+        <div style={{color:'#94a3b8',fontSize:12,fontWeight:600,letterSpacing:'-0.025em',marginBottom:4}}>코스닥협회 출석 QR</div>
+        <div style={{fontSize:24,fontWeight:800,color:'#0f172a',letterSpacing:'-0.025em'}}>{data.name}</div>
+        <div style={{fontSize:14,color:'#64748b',marginBottom:20}}>{data.company}</div>
+        <div style={{display:'inline-block',padding:16,background:'#fff',border:'3px solid #f04e23',borderRadius:20,marginBottom:16}}>
+          <canvas ref={ref}/>
+        </div>
+        <div style={{fontSize:10,color:'#94a3b8',fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',wordBreak:'break-all',marginBottom:16}}>{data.qrCode}</div>
+        <div className="flex gap-2 justify-center">
+          <button onClick={onCopy} style={{background:'#f04e23'}} className="px-5 py-2.5 text-white text-sm font-semibold rounded-xl hover:opacity-90">📋 링크 복사</button>
+          <button onClick={()=>window.print()} className="px-5 py-2.5 text-sm font-semibold rounded-xl border hover:bg-gray-50">🖨️ 인쇄</button>
+        </div>
+        <div style={{marginTop:16,padding:12,background:'#fff0ed',borderRadius:12,fontSize:12,color:'#7c2d12',textAlign:'left',lineHeight:1.6}}>
+          💡 박성민님 핸드폰으로 이 화면을 캡처해서 카톡/문자로 참가자께 전달하시거나,<br/>「📋 링크 복사」 후 메시지로 붙여넣기 하시면 됩니다.
+        </div>
+      </div>
     </div>
   );
 }
