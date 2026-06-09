@@ -16,9 +16,19 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2/dist/jspdf.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-.scanner-input{border:2px solid #3b82f6!important;background:#eff6ff;font-size:18px!important;font-family:monospace}
-.scanner-input:focus{border-color:#7c3aed!important;box-shadow:0 0 0 4px rgba(124,58,237,.15)!important}
+body{font-family:-apple-system,BlinkMacSystemFont,Pretendard,SUIT,"Noto Sans KR","Apple SD Gothic Neo","Segoe UI",sans-serif;letter-spacing:-0.015em;color:#0f172a;background:#f8fafc}
+/* v5.4 Figma Make 톤 — 글로벌 컬러 override (기존 blue → coral) */
+.bg-blue-600,.from-blue-700,.to-purple-800{background:#f04e23!important;background-image:none!important}
+.bg-gradient-to-br.from-blue-700.to-purple-800{background-image:linear-gradient(135deg,#f04e23,#f58220)!important}
+.hover\:bg-blue-700:hover{background:#d33d18!important}
+.text-blue-600,.text-blue-500,.text-blue-400{color:#f04e23!important}
+.text-blue-700,.text-blue-800{color:#c43e1a!important}
+.bg-blue-100,.bg-blue-50{background:#fff0ed!important}
+.border-blue-500,.border-blue-600,.border-blue-400{border-color:#f04e23!important}
+.bg-gray-900,.bg-gray-800{background:#0f172a!important}
+.text-gray-500,.text-gray-400{color:#64748b!important}
+.scanner-input{border:2px solid #f04e23!important;background:#fff0ed;font-size:18px!important;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.scanner-input:focus{border-color:#f58220!important;box-shadow:0 0 0 4px rgba(240,78,35,.15)!important}
 .scan-flash{position:fixed;inset:0;z-index:400;pointer-events:none;animation:flashAnim .5s ease-out forwards}
 @keyframes flashAnim{0%{opacity:.4}100%{opacity:0}}
 .scan-result-big{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:300;padding:40px 56px;border-radius:24px;text-align:center;min-width:380px;animation:popIn .2s ease-out}
@@ -29,7 +39,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
 @media print{.no-print{display:none!important}}
 @media(max-width:768px){.sidebar-wrap{display:none!important}.mobile-nav{display:flex!important}}
 .mobile-nav{display:none}
-.loading-spinner{display:inline-block;width:20px;height:20px;border:3px solid rgba(0,0,0,.1);border-radius:50%;border-top-color:#3b82f6;animation:spin .6s linear infinite}
+.loading-spinner{display:inline-block;width:20px;height:20px;border:3px solid rgba(0,0,0,.1);border-radius:50%;border-top-color:#f04e23;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .loading-overlay{position:fixed;inset:0;background:rgba(255,255,255,.7);display:flex;align-items:center;justify-content:center;z-index:500}
 </style>
