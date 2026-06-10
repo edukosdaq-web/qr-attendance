@@ -88,7 +88,8 @@ async function apiGet(action,params={}){
 async function apiPost(body){
   if(!_requireAuth(body.action)){return{status:'err',code:'NO_AUTH',message:'인증키가 없습니다 — 다시 로그인해주세요'};}
   // 배열/객체 포함 액션은 POST, 나머지는 GET (Safari POST→302 문제 우회)
-  const needsPost=['uploadParticipants','saveSurveyConfig','submitSurvey'];
+  // v5.4 fix: deleteParticipants는 Apps Script POST 핸들러에만 등록돼있어서 POST 분기 추가
+  const needsPost=['uploadParticipants','saveSurveyConfig','submitSurvey','deleteParticipants'];
   if(needsPost.includes(body.action)){
     try{
       const res=await fetch(API_URL,{method:'POST',redirect:'follow',headers:{'Content-Type':'text/plain'},body:JSON.stringify({...body,authKey:AUTH_KEY})});
