@@ -1365,10 +1365,10 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       };
       doReturn();
     }else{
-      // AM: 카드 매핑 (기존 로직)
+      // AM: 카드 매핑 (기존 로직) — QR 스캔 경로 (mapMethod='scanner')
       setCardMappingTarget(null);
       showScanResult('success','✅',target.name,'출석 완료 + 카드 매핑');
-      const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString()};
+      const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString(),mapMethod:'scanner'};
       setCards(prev=>[...prev,optimisticCard]);
       try{
         await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id,day:day,session:'AM'});
@@ -1724,6 +1724,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
               const att=present.find(a=>a.participantId===p.id);
               const mappedCard=cards.find(c=>c.participantId===p.id&&c.status==='mapped');
               const returnedCard=cards.find(c=>c.participantId===p.id&&c.status==='returned');
+              const sourceCard=mappedCard||returnedCard;
+              const cardMethod=sourceCard?.mapMethod; // 'scanner' | 'manual' | undefined
               const cardDisplay=mappedCard?{label:mappedCard.qrCode.replace('KOSDAQ-C-','C-'),status:'mapped'}
                 :returnedCard?{label:returnedCard.qrCode.replace('KOSDAQ-C-','C-'),status:'returned'}
                 :{label:'',status:'none'};
@@ -1796,6 +1798,9 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                       {cardDisplay.status==='returned'&&<span style={{background:'#f3e8ff',color:'#7e22ce',padding:'3px 8px',borderRadius:9999,fontWeight:700,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>✅ {cardDisplay.label}</span>}
                       {cardDisplay.status==='mapped'&&<span style={{background:'#fff0ed',color:'#f04e23',padding:'3px 8px',borderRadius:9999,fontWeight:700,fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace'}}>{cardDisplay.label}</span>}
                       {cardDisplay.status==='none'&&<span style={{color:'#cbd5e1'}}>카드 없음</span>}
+                      {/* v5.4: 카드 배부 방식 표시 (관리자만 보임, 작은 글씨) */}
+                      {cardMethod==='scanner'&&<span title="QR 스캔으로 배부" style={{marginLeft:4,fontSize:9,color:'#94a3b8',fontWeight:600}}>📷QR</span>}
+                      {cardMethod==='manual'&&<span title="수동 입력으로 배부" style={{marginLeft:4,fontSize:9,color:'#ea580c',fontWeight:700}}>✋수동</span>}
                     </div>
                     <div style={{display:'flex',gap:4}}>
                       {!att&&<button onClick={handleManualAtt} title="수동 출석" style={{padding:'3px 8px',background:'#e5f5eb',color:'#008a3c',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>출석</button>}
@@ -1847,7 +1852,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                     const res=await apiPost({action:'mapCard',cardId,participantId:p.id,day:String(day),session});
                     if(res.status==='ok'){
                       showToast(`✅ ${p.name} → ${cardId} 배부 완료`);
-                      setCards(prev=>[...prev,{id:'optC_'+Date.now(),qrCode:cardId,status:'mapped',participantId:p.id,participantName:p.name}]);
+                      setCards(prev=>[...prev,{id:'optC_'+Date.now(),qrCode:cardId,status:'mapped',participantId:p.id,participantName:p.name,mapMethod:'manual'}]);
                     }else showToast(`❌ ${res.message}`);
                   }catch(e){showToast('❌ 서버 연결 실패')}
                 };
