@@ -231,6 +231,7 @@ function App(){
   const [loggedIn,setLoggedIn]=useState(!!sessionStorage.getItem('kosdaq_v5_auth'));
   const [page,setPage]=useState('dashboard');
   const [selTraining,setSelTraining]=useState(null);
+  const [sidebarCollapsed,setSidebarCollapsed]=useState(sessionStorage.getItem('kosdaq_sidebar_collapsed')==='1');
   const [toast,setToast]=useState(null);
   const [scanResult,setScanResult]=useState(null);
   const [flash,setFlash]=useState(null);
@@ -411,58 +412,71 @@ function App(){
     <div className="flex min-h-screen">
       {globalLoading&&<LoadingOverlay text="데이터 로딩 중..."/>}
       {flash&&<div className="scan-flash" style={{background:flash==='success'?'#22c55e':flash==='error'?'#ef4444':'#eab308'}}/>}
-      <div className="sidebar-wrap" style={{width:240,background:'#fff',borderRight:'1px solid #f1f5f9',flexShrink:0,display:'flex',flexDirection:'column',minHeight:'100vh',fontFamily:'-apple-system,BlinkMacSystemFont,Pretendard,SUIT,"Noto Sans KR",sans-serif'}}>
-        {/* 로고 영역 */}
-        <div style={{padding:'24px 20px',borderBottom:'1px solid #f1f5f9'}}>
-          <div style={{display:'flex',alignItems:'center',gap:10}}>
-            <div style={{width:32,height:32,background:'#f04e23',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff'}}>
+      <div className="sidebar-wrap" style={{width:sidebarCollapsed?64:240,background:'#fff',borderRight:'1px solid #f1f5f9',flexShrink:0,display:'flex',flexDirection:'column',minHeight:'100vh',fontFamily:'-apple-system,BlinkMacSystemFont,Pretendard,SUIT,"Noto Sans KR",sans-serif',transition:'width .2s ease'}}>
+        {/* 로고 영역 + 접기 토글 */}
+        <div style={{padding:sidebarCollapsed?'18px 12px':'24px 20px',borderBottom:'1px solid #f1f5f9',position:'relative'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,justifyContent:sidebarCollapsed?'center':'flex-start'}}>
+            <div style={{width:32,height:32,background:'#f04e23',borderRadius:8,display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',flexShrink:0}}>
               <IconSvg d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM9 22V12h6v10" size={18}/>
             </div>
-            <div>
-              <div style={{fontWeight:800,fontSize:14,color:'#0f172a',letterSpacing:'-0.025em'}}>코스닥협회</div>
-              <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>QR 출석시스템 v5.4</div>
-            </div>
+            {!sidebarCollapsed&&(
+              <div>
+                <div style={{fontWeight:800,fontSize:14,color:'#0f172a',letterSpacing:'-0.025em'}}>코스닥협회</div>
+                <div style={{fontSize:11,color:'#94a3b8',marginTop:2}}>QR 출석시스템 v5.4</div>
+              </div>
+            )}
           </div>
+          {/* 접기/펴기 토글 */}
+          <button onClick={()=>{const v=!sidebarCollapsed;setSidebarCollapsed(v);sessionStorage.setItem('kosdaq_sidebar_collapsed',v?'1':'0')}}
+            title={sidebarCollapsed?'사이드바 펼치기':'사이드바 접기'}
+            style={{position:'absolute',top:24,right:sidebarCollapsed?-12:-12,width:24,height:24,borderRadius:'50%',background:'#fff',border:'1px solid #e2e8f0',display:'flex',alignItems:'center',justifyContent:'center',cursor:'pointer',color:'#64748b',boxShadow:'0 1px 2px rgba(0,0,0,0.06)',zIndex:5,padding:0}}>
+            <IconSvg d={sidebarCollapsed?'M9 18l6-6-6-6':'M15 18l-6-6 6-6'} size={14}/>
+          </button>
         </div>
 
         {selTraining?(
-          <div style={{padding:'16px 12px',display:'flex',flexDirection:'column',gap:4,flex:1}}>
+          <div style={{padding:sidebarCollapsed?'12px 8px':'16px 12px',display:'flex',flexDirection:'column',gap:4,flex:1}}>
             {/* 뒤로 + 연수명 */}
-            <div onClick={goBack}
-              style={{display:'flex',alignItems:'center',gap:8,padding:'8px 12px',borderRadius:10,cursor:'pointer',color:'#64748b',fontSize:12,fontWeight:600,marginBottom:8}}>
-              <IconSvg d={ICONS.back} size={14}/> 연수 목록
+            <div onClick={goBack} title="연수 목록"
+              style={{display:'flex',alignItems:'center',gap:8,padding:sidebarCollapsed?'10px':'8px 12px',borderRadius:10,cursor:'pointer',color:'#64748b',fontSize:12,fontWeight:600,marginBottom:8,justifyContent:sidebarCollapsed?'center':'flex-start'}}>
+              <IconSvg d={ICONS.back} size={14}/>{!sidebarCollapsed&&' 연수 목록'}
             </div>
-            <div style={{padding:'0 12px 12px',fontSize:11,color:'#94a3b8',fontWeight:600,letterSpacing:'-0.025em',lineHeight:1.4}}>
-              {training?.name}
-            </div>
+            {!sidebarCollapsed&&(
+              <div style={{padding:'0 12px 12px',fontSize:11,color:'#94a3b8',fontWeight:600,letterSpacing:'-0.025em',lineHeight:1.4}}>
+                {training?.name}
+              </div>
+            )}
             {/* 메뉴 */}
             {nav.map(n=>{
               const active=page===n.id;
               return (
-                <div key={n.id} onClick={()=>setPage(n.id)}
-                  style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,cursor:'pointer',fontSize:14,fontWeight:600,letterSpacing:'-0.025em',
+                <div key={n.id} onClick={()=>setPage(n.id)} title={n.label}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:sidebarCollapsed?'12px':'10px 14px',borderRadius:12,cursor:'pointer',fontSize:14,fontWeight:600,letterSpacing:'-0.025em',
                     background:active?'#f04e23':'transparent',
                     color:active?'#fff':'#475569',
                     boxShadow:active?'0 1px 2px rgba(240,78,35,0.25)':'none',
-                    transition:'all .15s'}}>
-                  <IconSvg d={n.icon} size={18}/> {n.label}
+                    transition:'all .15s',
+                    justifyContent:sidebarCollapsed?'center':'flex-start'}}>
+                  <IconSvg d={n.icon} size={18}/>{!sidebarCollapsed&&' '+n.label}
                 </div>
               );
             })}
           </div>
         ):(
-          <div style={{padding:'16px 12px',flex:1}}>
-            <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:12,background:'#f04e23',color:'#fff',fontSize:14,fontWeight:600,boxShadow:'0 1px 2px rgba(240,78,35,0.25)'}}>
-              <IconSvg d={ICONS.dashboard} size={18}/> 연수 목록
+          <div style={{padding:sidebarCollapsed?'12px 8px':'16px 12px',flex:1}}>
+            <div title="연수 목록"
+              style={{display:'flex',alignItems:'center',gap:10,padding:sidebarCollapsed?'12px':'10px 14px',borderRadius:12,background:'#f04e23',color:'#fff',fontSize:14,fontWeight:600,boxShadow:'0 1px 2px rgba(240,78,35,0.25)',justifyContent:sidebarCollapsed?'center':'flex-start'}}>
+              <IconSvg d={ICONS.dashboard} size={18}/>{!sidebarCollapsed&&' 연수 목록'}
             </div>
           </div>
         )}
 
         {/* 로그아웃 */}
-        <div style={{padding:16,borderTop:'1px solid #f1f5f9'}}>
+        <div style={{padding:sidebarCollapsed?12:16,borderTop:'1px solid #f1f5f9'}}>
           <button onClick={()=>{sessionStorage.removeItem('kosdaq_v5_auth');setLoggedIn(false)}}
-            style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'10px 14px',background:'transparent',border:'none',borderRadius:10,color:'#64748b',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left'}}>
-            <IconSvg d={ICONS.logout} size={16}/> 로그아웃
+            title="로그아웃"
+            style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:sidebarCollapsed?'10px':'10px 14px',background:'transparent',border:'none',borderRadius:10,color:'#64748b',fontSize:13,fontWeight:600,cursor:'pointer',textAlign:'left',justifyContent:sidebarCollapsed?'center':'flex-start'}}>
+            <IconSvg d={ICONS.logout} size={16}/>{!sidebarCollapsed&&' 로그아웃'}
           </button>
         </div>
       </div>
