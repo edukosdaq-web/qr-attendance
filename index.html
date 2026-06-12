@@ -1804,7 +1804,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                     </div>
                     <div style={{display:'flex',gap:4}}>
                       {!att&&<button onClick={handleManualAtt} title="수동 출석" style={{padding:'3px 8px',background:'#e5f5eb',color:'#008a3c',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>출석</button>}
-                      {!mappedCard&&!returnedCard&&<button onClick={handleManualAssign} title="카드 배부" style={{padding:'3px 8px',background:'#fff0ed',color:'#f04e23',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>배부</button>}
+                      {!mappedCard&&!<button onClick={handleManualAssign} title="카드 배부" style={{padding:'3px 8px',background:'#fff0ed',color:'#f04e23',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>배부</button>}
                       {mappedCard&&<button onClick={handleManualReturn} title="카드 반납" style={{padding:'3px 8px',background:'#fff7ed',color:'#f58220',border:'none',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer'}}>반납</button>}
                     </div>
                   </div>
