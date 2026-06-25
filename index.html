@@ -1299,9 +1299,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     if(session==='PM'&&isLastDay){
       // 마지막날 PM: 낙관적 UI + 수동 수료 버튼
       setCardMappingTarget(null);
-      // 즉시 UI 업데이트 (낙관적)
-      const optAtt={id:'opt_'+Date.now(),participantId:target.id,trainingId:training.id,day,session:'PM',checkedAt:new Date().toISOString(),method:'card-return'};
-      setAttendance(prev=>[...prev,optAtt]);
+      // 출석은 참가자 QR 스캔 시 processAttendance가 이미 저장함 (returnCard 실패와 무관하게 출석 보존 · 중복 표시 방지)
       setCards(prev=>prev.map(c=>c.participantId===target.id&&c.status==='mapped'?{...c,status:'returned'}:c));
       // 낙관적: 설문+출석 조건 로컬 판단하여 즉시 수료 or 반납 표시
       const localSurveyOk=target.surveyCompleted;
@@ -1511,7 +1509,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       if(target){
         const existing=attendanceRecords.find(a=>a.participantId===target.id&&a.day===day&&a.session==='PM');
         if(existing){showScanResult('duplicate','⚠️',target.name,'이미 오후 출석 처리됨');setQr('');return}
-        setCardMappingTarget(target);setQr('');
+        processAttendance(target);
         return;
       }
       // 카드 QR이 먼저 스캔된 경우
