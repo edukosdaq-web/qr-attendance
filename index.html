@@ -106,6 +106,20 @@ async function apiPost(body){
   }
 }
 
+/* ─── v5.5: 퇴실 저장 안전장치 — 저장 중 새로고침/이탈 방지 + 대기 표시 ─── */
+let _pendingReturns=0;
+function _rqBadge(){
+  let el=document.getElementById('_rqBadge');
+  if(!el){
+    el=document.createElement('div'); el.id='_rqBadge';
+    el.style.cssText='position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:99999;background:#f04e23;color:#fff;font-weight:800;padding:10px 18px;border-radius:9999px;box-shadow:0 3px 10px rgba(0,0,0,.35);font-size:15px;display:none';
+    (document.body||document.documentElement).appendChild(el);
+  }
+  if(_pendingReturns>0){ el.textContent='💾 저장 중 '+_pendingReturns+'건 — 새로고침 금지!'; el.style.display='block'; }
+  else { el.style.display='none'; }
+}
+window.addEventListener('beforeunload',function(e){ if(_pendingReturns>0){ e.preventDefault(); e.returnValue='저장 중인 퇴실 기록이 있습니다. 지금 나가면 누락될 수 있어요.'; return e.returnValue; } });
+
 /* ─── LocalStorage Cache ─── */
 const CACHE_KEY='kosdaq_qr_v5_cache';
 function cacheGet(key){try{const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'{}');return c[key]}catch(e){return null}}
@@ -1242,11 +1256,14 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   };
   const inputRef=useRef();
   const scanTimerRef=useRef(null);
-
-  useFocusLock(inputRef,!showManual&&!cardMappingTarget);
+  const lastScanCodeRef=useRef(''); // v5.6: 쿨다운을 동일 코드 재스캔에만 적용하기 위한 직전 스캔값
 
   // 카드 매핑 대기 상태: 출석 후 카드 스캔 대기
+  // v5.6 버그수정: 선언이 useFocusLock 호출보다 뒤에 있어 항상 undefined로 평가됨
+  // → 카드 모달이 떠 있는 동안에도 메인 입력이 0.5초마다 포커스를 빼앗아 카드 스캔이 유실되던 문제
   const [cardMappingTarget,setCardMappingTarget]=useState(null); // 출석 완료된 참가자 — 카드 스캔 대기 중
+
+  useFocusLock(inputRef,!showManual&&!cardMappingTarget);
 
   const processAttendance=async(target,method='scanner')=>{
     const existing=attendanceRecords.find(a=>a.participantId===target.id&&a.day===day&&a.session===session);
@@ -1319,6 +1336,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
           const res=await apiPost({action:'returnCard',cardId:cardCode,day:String(day)});
           console.log('[returnCard] 응답:',JSON.stringify(res));
           if(res.status==='ok'){
+            _pendingReturns=Math.max(0,_pendingReturns-1); _rqBadge();
             const d=res.data||{};
             const graduated=d.수료?.수료처리됨||d.graduated;
             if(graduated){
@@ -1342,6 +1360,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
             console.error('[returnCard] 서버 에러:',res.message);
             if(retry<2){console.log('[returnCard] 재시도',retry+1);setTimeout(()=>doReturn(retry+1),2000)}
             else{
+              _pendingReturns=Math.max(0,_pendingReturns-1); _rqBadge();
               // v5.4: 최종 실패 시 영속 알림 — 담당자가 놓치지 않도록 모달로 표시
               showScanResult('error','⚠️',target.name,`서버 저장 실패 (3회 시도) — ${res.message||'다시 시도 필요'}`,0,{
                 label:'수동 재시도',
@@ -1353,6 +1372,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
           console.error('[returnCard] 네트워크 에러:',e);
           if(retry<2){console.log('[returnCard] 재시도',retry+1);setTimeout(()=>doReturn(retry+1),2000)}
           else{
+            _pendingReturns=Math.max(0,_pendingReturns-1); _rqBadge();
             // v5.4: 네트워크 최종 실패 시 영속 알림
             showScanResult('error','⚠️',target.name,'서버 연결 실패 (3회 시도) — 네트워크 확인 후 재시도',0,{
               label:'수동 재시도',
@@ -1361,6 +1381,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
           }
         }
       };
+      _pendingReturns++; _rqBadge();
       doReturn();
     }else{
       // AM: 카드 매핑 (기존 로직) — QR 스캔 경로 (mapMethod='scanner')
@@ -1369,11 +1390,24 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       const optimisticCard={id:'optC_'+Date.now(),qrCode:cardCode,status:'mapped',participantId:target.id,participantName:target.name,mappedAt:new Date().toISOString(),mapMethod:'scanner'};
       setCards(prev=>[...prev,optimisticCard]);
       try{
-        await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id,day:day,session:'AM'});
-        showToast(`🔗 ${target.name} ← ${cardCode} 매핑 완료`);
+        // v5.6 버그수정: 서버 응답 status를 확인하지 않아 GAS가 오류를 돌려줘도(이중매핑 등)
+        // 화면은 성공으로 표시되고 시트에는 기록이 없던 문제 → 실패 시 영속 모달로 요란하게 알림
+        const res=await apiPost({action:'mapCard',cardId:cardCode,participantId:target.id,day:day,session:'AM'});
+        if(res&&res.status==='ok'){
+          showToast(`🔗 ${target.name} ← ${cardCode} 매핑 완료`);
+        }else{
+          setCards(prev=>prev.filter(c=>c.id!==optimisticCard.id));
+          showScanResult('error','❌',target.name,`카드 매핑 저장 실패 — ${(res&&(res.message||res.error))||'서버 오류'}. 카드를 다시 스캔해 주세요.`,0,{
+            label:'카드 다시 스캔',
+            action:()=>setCardMappingTarget(target)
+          });
+        }
       }catch(e){
         setCards(prev=>prev.filter(c=>c.id!==optimisticCard.id));
-        showToast('⚠️ 카드 매핑 실패: '+e.message);
+        showScanResult('error','❌',target.name,'카드 매핑 실패(네트워크) — 카드를 다시 스캔해 주세요. '+e.message,0,{
+          label:'카드 다시 스캔',
+          action:()=>setCardMappingTarget(target)
+        });
       }
     }
   };
@@ -1469,8 +1503,10 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   const processQR=async(rawCode)=>{
     // v2: 연속인식 방지 — 0.5초 이내 재스캔 무시
     const now=Date.now();
-    if(now-lastScanTimeRef.current<500){console.log('[QR] 연속인식 방지: 0.5초 쿨다운');setQr('');return;}
-    lastScanTimeRef.current=now;
+    // v5.6: 쿨다운은 같은 코드의 재스캔에만 적용 — 폰QR 직후 0.5초 안에 카드QR을 대면 통째로 무시되던 문제 수정
+    const rawTrim=rawCode.replace(/[\r\n\t]/g,'').trim();
+    if(now-lastScanTimeRef.current<500&&rawTrim===lastScanCodeRef.current){console.log('[QR] 연속인식 방지: 동일 코드 0.5초 쿨다운');setQr('');return;}
+    lastScanTimeRef.current=now;lastScanCodeRef.current=rawTrim;
 
     let code=rawCode.replace(/[\r\n\t]/g,'').trim();
     // 한글 자판 입력 감지 시 영문 변환 (개별 자모 + 완성형 한글 모두 처리)
@@ -1874,7 +1910,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                   <td className="p-2 text-center text-xs">{att?new Date(att.checkedAt).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'-'}</td>
                   <td className="p-2 text-center"><div className="flex flex-col gap-1">
                     {!att&&<button className="text-xs px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200" onClick={handleManualAtt}>출석</button>}
-                    {!mappedCard&&!returnedCard&&<button className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200" onClick={handleManualAssign}>배부</button>}
+                    {!mappedCard&&<button className="text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200" onClick={handleManualAssign}>배부</button>}
                     {mappedCard&&<button className="text-xs px-2 py-1 bg-orange-100 text-orange-700 rounded hover:bg-orange-200" onClick={handleManualReturn}>반납</button>}
                   </div></td></tr>;
               })}</tbody>
@@ -1882,7 +1918,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
           </div>
         </div>}
       {showManual&&<ManualSearch participants={participants} title="수동 출석" onClose={()=>setShowManual(false)} onSelect={p=>{processAttendance(p,'manual');setShowManual(false)}}/>}
-      {cardMappingTarget&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{setCardMappingTarget(null)}}>
+      {cardMappingTarget&&<div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={()=>{/* v5.6: 배경 클릭으로 조용히 닫히지 않도록 변경 — 닫기는 ✕ 또는 건너뛰기 버튼으로만 */}}>
         <div className="bg-white rounded-2xl p-8 shadow-2xl text-center max-w-md mx-4 relative" onClick={e=>e.stopPropagation()}>
           <button className="absolute top-3 right-3 text-gray-400 hover:text-gray-600 text-xl" onClick={()=>setCardMappingTarget(null)}>✕</button>
           <div className="text-5xl mb-3">{isLastDay&&session==='PM'?'🎓':'🪪'}</div>
@@ -1896,7 +1932,7 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
               {isLastDay&&session==='PM'?'카드 QR → 오후 출석 + 카드 반납 + 수료':'카드 뒷면의 QR코드를 스캐너에 대주세요'}
             </div>
           </div>
-          <input type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder={isLastDay&&session==='PM'?'카드 QR 스캔 → 수료 처리':'카드 QR 스캔 대기...'} autoFocus/>
+          <input type="text" inputMode="latin" autoComplete="off" autoCorrect="off" spellCheck="false" className="scanner-input w-full px-4 py-3 border rounded-lg text-center mb-4" value={qrInput} onChange={e=>{const v=e.target.value;setQr(v);if(scanTimerRef.current)clearTimeout(scanTimerRef.current);const trimmed=v.trim();if(trimmed.length>=5){scanTimerRef.current=setTimeout(()=>{processCardMapping(trimmed);setQr('')},400)}}} onKeyDown={e=>{if(e.key==='Enter'){e.preventDefault();const v=qrInput.trim();if(v){processCardMapping(v);setQr('')}}}} placeholder={isLastDay&&session==='PM'?'카드 QR 스캔 → 수료 처리':'카드 QR 스캔 대기...'} autoFocus onBlur={e=>{const el=e.target;setTimeout(()=>{if(el&&document.body.contains(el))el.focus()},50)}}/>
           {session==='AM'&&<button className="px-6 py-2 bg-gray-200 rounded-lg text-sm font-medium" onClick={()=>{setCardMappingTarget(null);showScanResult('success','✅',cardMappingTarget.name,'출석 완료 (카드 없이)')}}>건너뛰기</button>}
         </div>
       </div>}
