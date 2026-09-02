@@ -1257,6 +1257,8 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
   const inputRef=useRef();
   const scanTimerRef=useRef(null);
   const lastScanCodeRef=useRef(''); // v5.6: 쿨다운을 동일 코드 재스캔에만 적용하기 위한 직전 스캔값
+  const lastCardMapCodeRef=useRef(''); // 카드매핑 더블스캔 방지: 직전 카드코드
+  const lastCardMapTimeRef=useRef(0);  // 카드매핑 더블스캔 방지: 직전 처리시각
 
   // 카드 매핑 대기 상태: 출석 후 카드 스캔 대기
   // v5.6 버그수정: 선언이 useFocusLock 호출보다 뒤에 있어 항상 undefined로 평가됨
@@ -1309,6 +1311,14 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
       setQr('');
       return;
     }
+    // v6 더블스캔 방지: 같은 카드코드를 1.5초 이내 재처리하면 무시 (스캐너 중복인식 → '이미 매핑' 오류 원천 차단)
+    const _nowCM=Date.now();
+    if(cardCode===lastCardMapCodeRef.current&&_nowCM-lastCardMapTimeRef.current<1500){
+      console.log('[카드매핑] 더블스캔 방지: 동일 카드 1.5초 무시', cardCode);
+      setQr('');
+      return;
+    }
+    lastCardMapCodeRef.current=cardCode; lastCardMapTimeRef.current=_nowCM;
     const target=cardMappingTarget;
     // target 초기화를 성공 시점까지 지연 (잘못된 카드 스캔 시 재시도 가능하도록)
     setQr('');
