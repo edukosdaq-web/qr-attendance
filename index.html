@@ -181,6 +181,59 @@ function _rqBadge(){
 }
 window.addEventListener('beforeunload',function(e){ if(_pendingReturns>0){ e.preventDefault(); e.returnValue='저장 중인 퇴실 기록이 있습니다. 지금 나가면 누락될 수 있어요.'; return e.returnValue; } });
 
+/* ─── v5.8: 출석 누락 방지 — 전송 실패 시 자동 재전송 + 끝내 실패하면 지워지지 않는 목록에 표시 ─── */
+const _sleep=ms=>new Promise(r=>setTimeout(r,ms));
+function _withTimeout(p,ms){return Promise.race([p,new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),ms))])}
+// alreadyOk: 재전송 때 서버가 "이미 처리됨"이라고 답하면(=앞선 전송이 실제로는 저장된 경우) 성공으로 본다
+async function apiPostReliable(body,opts={}){
+  const tries=opts.tries||3, alreadyOk=opts.alreadyOk||null;
+  let lastMsg='';
+  for(let i=0;i<tries;i++){
+    if(i>0){_pendingReturns++;_rqBadge();await _sleep(1500*i);}
+    try{
+      const res=await _withTimeout(apiPost(body),35000);
+      if(res&&res.status==='ok')return{ok:true,res};
+      lastMsg=(res&&(res.message||res.error))||'서버 오류';
+      if(i>0&&alreadyOk&&alreadyOk.test(lastMsg))return{ok:true,res,recovered:true};
+      // 서버가 밀려서 거절한 경우(대기 초과)만 다시 보낸다. 그 밖의 오류는 다시 보내도 같으므로 바로 알린다
+      if(!/서버 처리 중|다시 스캔/.test(lastMsg))return{ok:false,message:lastMsg,res};
+    }catch(e){
+      lastMsg='서버 연결 실패';
+      console.error('[재전송] '+body.action+' 시도 '+(i+1)+' 실패:',e);
+    }finally{
+      if(i>0){_pendingReturns=Math.max(0,_pendingReturns-1);_rqBadge();}
+    }
+  }
+  return{ok:false,message:lastMsg+' ('+tries+'회 시도)'};
+}
+// 저장 실패 목록: 다음 사람을 스캔해도 사라지지 않는다. 항목을 누르면 지워진다.
+function _failAdd(name,msg){
+  let box=document.getElementById('_failBox');
+  if(!box){
+    box=document.createElement('div'); box.id='_failBox';
+    box.style.cssText='position:fixed;left:12px;bottom:12px;z-index:99998;max-width:420px;max-height:50vh;overflow:auto;display:flex;flex-direction:column;gap:6px';
+    (document.body||document.documentElement).appendChild(box);
+  }
+  const item=document.createElement('div');
+  const t=new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+  item.textContent='저장 실패 '+t+' | '+name+' | '+msg+' (다시 처리한 뒤 눌러서 지우기)';
+  item.style.cssText='background:#b91c1c;color:#fff;font-weight:700;font-size:14px;padding:10px 14px;border-radius:12px;box-shadow:0 3px 10px rgba(0,0,0,.35);cursor:pointer';
+  item.onclick=()=>item.remove();
+  box.appendChild(item);
+}
+// 오늘 날짜와 시각으로 일차, 오전/오후 계산 (연수 기간 밖이면 day=null)
+function _todayDaySession(training){
+  const now=new Date();
+  const m=String(training&&training.startDate||'').match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+  let d=null;
+  if(m){
+    const s=new Date(+m[1],+m[2]-1,+m[3]); const t=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const n=Math.round((t-s)/86400000)+1;
+    if(n>=1&&n<=Number(training.days||1))d=n;
+  }
+  return{day:d,session:now.getHours()>=13?'PM':'AM'};
+}
+
 /* ─── LocalStorage Cache ─── */
 const CACHE_KEY='kosdaq_qr_v5_cache';
 function cacheGet(key){try{const c=JSON.parse(localStorage.getItem(CACHE_KEY)||'{}');return c[key]}catch(e){return null}}
@@ -1332,10 +1385,12 @@ function ManualSearch({participants,onSelect,onClose,title}){
    Attendance
    ═══════════════════════════════════════════ */
 function AttendancePage({training,participants,attendanceRecords,showToast,showScanResult,cards,loadAttendance,setAttendance,setCards,setParticipants,loadCards}){
-  const [day,setDay]=useState(1);
+  // v5.8: 화면을 열 때 오늘 날짜와 시각에 맞춰 일차, 오전/오후 자동 선택 (기존: 항상 1일차 오전)
+  const _auto0=_todayDaySession(training);
+  const [day,setDay]=useState(_auto0.day||1);
   const [listQ,setListQ]=useState(''); // v5.7: 실시간 현황 검색
   const [showSmsTpl,setShowSmsTpl]=useState(false); // v5.7: 문자 본문 편집 모달
-  const [session,setSess]=useState('AM');
+  const [session,setSess]=useState(_auto0.day?_auto0.session:'AM');
   const [qrInput,setQr]=useState('');
   const [showManual,setShowManual]=useState(false);
   const [scanning,setScanning]=useState(false);
@@ -1381,16 +1436,23 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setCardMappingTarget(target);setQr('');
 
     // 백그라운드 서버 저장 (낙관적 UI 이미 반영됨, 재조회 안 함)
-    try{
-      const res=await apiPost({action:'scan',qrCode:target.qrCode,day,session,method});
-      if(res.status!=='ok'){
-        setAttendance(prev=>prev.filter(a=>a.id!==optimisticAtt.id));
-        showScanResult('error','❌',target.name,res.error||res.message||'서버 저장 실패');
-        setCardMappingTarget(null);
-      }
-    }catch(e){
-      showToast('⚠️ 오프라인: '+target.name+' 출석은 로컬 저장됨');
+    // v5.8: 실패 시 자동 재전송(최대 3회). 끝내 실패하면 명단에서 빼고 지워지지 않는 실패 목록에 올린다
+    //       (기존: 통신 실패 시 "로컬 저장됨" 안내만 뜨고 실제로는 저장도 재전송도 되지 않아 누락)
+    const r=await apiPostReliable({action:'scan',qrCode:target.qrCode,day,session,method},{alreadyOk:/이미.*출석/});
+    if(r.ok)return;
+    if(/이미.*출석/.test(r.message||'')){
+      // 서버에 이미 기록이 있는 경우: 누락이 아니므로 명단은 그대로 두고 안내만
+      showScanResult('duplicate','⚠️',target.name,r.message);
+      return;
     }
+    setAttendance(prev=>prev.filter(a=>a.id!==optimisticAtt.id));
+    // 늦게 도착한 오류가 다음 사람의 카드 대기 창을 닫지 않도록, 같은 사람일 때만 닫는다
+    setCardMappingTarget(cur=>(cur&&cur.id===target.id)?null:cur);
+    _failAdd(target.name,`${day}일차 ${session==='AM'?'오전':'오후'} 출석: ${r.message}`);
+    showScanResult('error','❌',target.name,`출석 저장 실패 — ${r.message}. 이 분을 다시 스캔해 주세요.`,0,{
+      label:'지금 다시 저장',
+      action:()=>processAttendance(target,method)
+    });
   };
 
   // 카드 처리: AM→매핑, PM 마지막날→반납+수료
@@ -1563,14 +1625,17 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
     setAttendance(prev=>[...prev,optAtt]);
     setQr('');
     // 백그라운드 API
-    try{
-      const res=await apiPost({action:'returnCard',cardId:cardCode,day:day});
-      if(res.status!=='ok'){
-        showScanResult('error','❌','처리 실패',res.message||'카드 반납 실패');
-        setCards(prev=>prev.map(c=>c.id===mapped.id?{...c,status:'mapped'}:c));
-      }
-    }catch(e){
-      showScanResult('error','❌','네트워크 오류','서버 연결 실패');
+    // v5.8: 실패 시 자동 재전송. 끝내 실패하면 오후 출석 표시를 되돌리고 실패 목록에 올린다
+    //       (기존: 통신 실패 시 화면에는 오후 출석으로 남고 서버에는 기록이 없어 누락)
+    const r=await apiPostReliable({action:'returnCard',cardId:cardCode,day:day},{alreadyOk:/찾을 수 없습니다/});
+    if(!r.ok){
+      setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));
+      setCards(prev=>prev.map(c=>c.id===mapped.id?{...c,status:'mapped'}:c));
+      _failAdd(pName||cardCode,`${day}일차 오후 출석과 카드 반납: ${r.message}`);
+      showScanResult('error','❌',pName||'처리 실패',`오후 출석 저장 실패 — ${r.message}. 카드를 다시 스캔해 주세요.`,0,{
+        label:'확인',
+        action:()=>{}
+      });
     }
   };
 
@@ -1753,6 +1818,23 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
         </div>
       </div>
 
+      {/* v5.8: 선택한 일차, 오전/오후가 오늘 날짜, 현재 시각과 다르면 경고 (막지는 않음) */}
+      {(()=>{
+        const a=_todayDaySession(training);
+        const dayOff=a.day&&a.day!==day;
+        const sessOff=a.day&&a.day===day&&a.session!==session;
+        if(!dayOff&&!sessOff)return null;
+        const msg=dayOff
+          ?`주의: 오늘은 ${a.day}일차인데 지금 ${day}일차로 선택되어 있습니다. 이대로 찍으면 다른 날 출석으로 저장됩니다.`
+          :`확인: 지금 시각은 ${a.session==='AM'?'오전':'오후'}인데 '${session==='AM'?'오전 입실':'오후 퇴실'}'로 선택되어 있습니다.`;
+        return(
+          <div style={{marginBottom:16,padding:'14px 20px',borderRadius:16,background:dayOff?'#b91c1c':'#f58220',color:'#fff',fontWeight:800,fontSize:18,display:'flex',justifyContent:'space-between',alignItems:'center',gap:16}}>
+            <span>{msg}</span>
+            <button onClick={()=>{setDay(a.day);setSess(a.session)}} style={{padding:'8px 16px',borderRadius:10,border:'none',background:'#fff',color:'#0f172a',fontWeight:800,fontSize:15,cursor:'pointer',flexShrink:0}}>오늘 기준으로 맞추기</button>
+          </div>
+        );
+      })()}
+
       {/* ── 메인 그리드 (좌 3 : 우 1) ── */}
       <div style={{display:'grid',gridTemplateColumns:'3fr 1fr',gap:24,alignItems:'stretch',flex:1,minHeight:0}}>
         {/* ── 좌측 ── */}
@@ -1884,11 +1966,11 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                 if(!confirm(`${p.name}님을 ${day}일차 ${session} 수동 출석 처리하시겠습니까?`))return;
                 const optAtt={id:'manual_'+Date.now(),participantId:p.id,trainingId:training.id,day,session,checkedAt:new Date().toISOString(),method:'manual',late:false};
                 setAttendance(prev=>[...prev,optAtt]);
-                try{
-                  const res=await apiPost({action:'scan',qrCode:p.qrCode,day,session,method:'manual'});
-                  if(res.status!=='ok'){setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));showToast(`❌ ${res.message}`)}
-                  else showToast(`✅ ${p.name} 수동 출석 완료`);
-                }catch(e){showToast('⚠️ 오프라인 저장됨')}
+                // v5.8: 실패 시 자동 재전송, 끝내 실패하면 명단에서 빼고 실패 목록에 표시
+                const r=await apiPostReliable({action:'scan',qrCode:p.qrCode,day,session,method:'manual'},{alreadyOk:/이미.*출석/});
+                if(r.ok)showToast(`✅ ${p.name} 수동 출석 완료`);
+                else if(/이미.*출석/.test(r.message||''))showToast('ℹ️ 이미 출석 처리됨');
+                else{setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));_failAdd(p.name,`${day}일차 수동 출석: ${r.message}`);showToast(`❌ ${p.name} 저장 실패 — ${r.message}`)}
               };
               const handleManualAssign=async()=>{
                 const cardNum=prompt(`${p.name}님에게 배부할 카드 번호 입력:\n(예: 050, C-050, KOSDAQ-C-050)`);
@@ -1984,11 +2066,11 @@ function AttendancePage({training,participants,attendanceRecords,showToast,showS
                   if(!confirm(`${p.name}님을 ${day}일차 ${session} 수동 출석 처리하시겠습니까?`))return;
                   const optAtt={id:'manual_'+Date.now(),participantId:p.id,trainingId:training.id,day,session,checkedAt:new Date().toISOString(),method:'manual',late:false};
                   setAttendance(prev=>[...prev,optAtt]);
-                  try{
-                    const res=await apiPost({action:'scan',qrCode:p.qrCode,day,session,method:'manual'});
-                    if(res.status!=='ok'){setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));showToast(`❌ ${res.message}`)}
-                    else showToast(`✅ ${p.name} 수동 출석 완료`);
-                  }catch(e){showToast('⚠️ 오프라인 저장됨')}
+                  // v5.8: 실패 시 자동 재전송, 끝내 실패하면 명단에서 빼고 실패 목록에 표시
+                  const r=await apiPostReliable({action:'scan',qrCode:p.qrCode,day,session,method:'manual'},{alreadyOk:/이미.*출석/});
+                  if(r.ok)showToast(`✅ ${p.name} 수동 출석 완료`);
+                  else if(/이미.*출석/.test(r.message||''))showToast('ℹ️ 이미 출석 처리됨');
+                  else{setAttendance(prev=>prev.filter(a=>a.id!==optAtt.id));_failAdd(p.name,`${day}일차 수동 출석: ${r.message}`);showToast(`❌ ${p.name} 저장 실패 — ${r.message}`)}
                 };
                 // 수동 카드 배부
                 const handleManualAssign=async()=>{
